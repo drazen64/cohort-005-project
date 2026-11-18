@@ -36,6 +36,8 @@ export type FeedState = {
   unseenCount: number;
   unreadCount: number;
   loading: boolean;
+  /** A later page is on its way (infinite scroll). */
+  loadingMore: boolean;
   hasMore: boolean;
 };
 
@@ -49,6 +51,10 @@ export interface NotificationFeed {
   loadMore(): Promise<void>;
   /** Marks every Notification seen, including ones not loaded yet. */
   markAllSeen(): Promise<void>;
+  /** Marks one Notification read. There is no "mark unread". */
+  markRead(id: string): Promise<void>;
+  /** Marks every Notification read, including ones not loaded yet. */
+  markAllRead(): Promise<void>;
   /** Closes the live connection. The feed can't be used afterwards. */
   dispose(): void;
 }
@@ -58,6 +64,7 @@ export const EMPTY_FEED_STATE: FeedState = {
   unseenCount: 0,
   unreadCount: 0,
   loading: false,
+  loadingMore: false,
   hasMore: false,
 };
 
@@ -68,6 +75,8 @@ export function emptyFeed(): NotificationFeed {
     start: async () => {},
     loadMore: async () => {},
     markAllSeen: async () => {},
+    markRead: async () => {},
+    markAllRead: async () => {},
     dispose: () => {},
   };
 }
