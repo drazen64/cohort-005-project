@@ -10,6 +10,7 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Textarea } from "~/components/ui/textarea";
+import { Switch } from "~/components/ui/switch";
 import { UserRole, RefundStatus, users } from "~/db/schema";
 import { AlertTriangle } from "lucide-react";
 import { data, isRouteErrorResponse, Link } from "react-router";
@@ -19,11 +20,35 @@ import { formatPrice } from "~/lib/utils";
 import { listRefundRequestsForBuyer } from "~/lib/refunds.server";
 import { defaultNotifications } from "~/lib/notifications.server";
 import { updateProfile } from "~/lib/users.server";
+import {
+  listPreferenceSwitches,
+  setPreference,
+  type PreferenceSwitch,
+} from "~/lib/notification-preferences.server";
+import {
+  NOTIFICATION_CATEGORY_NAMES,
+  type NotificationCategory,
+} from "~/lib/notifications";
 
-const settingsSchema = z.object({
-  name: z.string().trim().min(1, "Name cannot be empty."),
-  bio: z.string().trim().optional(),
-});
+const settingsSchema = z.discriminatedUnion("intent", [
+  z.object({
+    intent: z.literal("profile"),
+    name: z.string().trim().min(1, "Name cannot be empty."),
+    bio: z.string().trim().optional(),
+  }),
+  z.object({
+    intent: z.literal("notification-preference"),
+    category: z
+      .string()
+      .refine((value): value is NotificationCategory =>
+        (NOTIFICATION_CATEGORY_NAMES as readonly string[]).includes(value)
+      ),
+    enabled: z.enum(["true", "false"]).transform((value) => value === "true"),
+  }),
+]);
+
+const NOTIFICATION_PREFERENCE_SAVE_FAILED =
+  "Couldn't save your Notification preference. Please try again.";
 
 export function meta() {
   return [
@@ -53,6 +78,21 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const refundRequests = listRefundRequestsForBuyer(db, currentUserId);
 
+  // `null` when the preferences can't be read, so the page still loads.
+  let notificationPreferences: PreferenceSwitch[] | null = null;
+  try {
+    notificationPreferences = await listPreferenceSwitches(
+      db,
+      currentUserId,
+      defaultNotifications()
+    );
+  } catch (error) {
+    console.error(
+      `[notifications] Failed to read preferences for user ${currentUserId}`,
+      error
+    );
+  }
+
   return {
     user: {
       id: currentUser.id,
@@ -62,6 +102,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       role: currentUser.role,
     },
     refundRequests,
+    notificationPreferences,
   };
 }
 
@@ -79,6 +120,27 @@ export async function action({ request }: Route.ActionArgs) {
     return data({ errors: parsed.errors }, { status: 400 });
   }
 
+  if (parsed.data.intent === "notification-preference") {
+    try {
+      await setPreference(
+        defaultNotifications(),
+        currentUserId,
+        parsed.data.category,
+        parsed.data.enabled
+      );
+    } catch (error) {
+      console.error(
+        `[notifications] Failed to save preference ${parsed.data.category} for user ${currentUserId}`,
+        error
+      );
+      return data(
+        { error: NOTIFICATION_PREFERENCE_SAVE_FAILED },
+        { status: 502 }
+      );
+    }
+    return { saved: true };
+  }
+
   const user = await updateProfile(
     db,
     currentUserId,
@@ -92,7 +154,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function Settings({ loaderData }: Route.ComponentProps) {
-  const { user, refundRequests } = loaderData;
+  const { user, refundRequests, notificationPreferences } = loaderData;
   const openCount = refundRequests.filter(
     (refundRequest) => refundRequest.status === RefundStatus.Open
   ).length;
@@ -133,6 +195,7 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
         </CardHeader>
         <CardContent>
           <fetcher.Form method="post" className="space-y-4">
+            <input type="hidden" name="intent" value="profile" />
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
               <Input
@@ -182,6 +245,8 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
         </CardContent>
       </Card>
 
+      <NotificationsCard preferences={notificationPreferences} />
+
       {refundRequests.length > 0 && (
         <Card className="mt-8 max-w-md">
           <CardHeader>
@@ -229,6 +294,119 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+const NOTIFICATION_PREFERENCE_COPY: Record<
+  NotificationCategory,
+  { label: string; description: string }
+> = {
+  refundRequestUpdates: {
+    label: "Refund Request updates",
+    description:
+      "When we receive, approve or decline a Refund Request you raised.",
+  },
+  openRefundRequests: {
+    label: "Open Refund Requests",
+    description: "When a buyer raises a Refund Request that needs a decision.",
+  },
+  seatClaims: {
+    label: "Seat claims",
+    description: "When someone claims a Seat on one of your Team Licences.",
+  },
+  enrollments: {
+    label: "Enrollments",
+    description: "When a Student enrols on one of your courses.",
+  },
+  discussionQuestions: {
+    label: "Discussion Questions",
+    description: "When someone asks a question on one of your lessons.",
+  },
+  discussionReplies: {
+    label: "Discussion Replies",
+    description: "When someone replies to a question you asked.",
+  },
+};
+
+function NotificationsCard({
+  preferences,
+}: {
+  preferences: PreferenceSwitch[] | null;
+}) {
+  return (
+    <Card className="mt-8 max-w-md">
+      <CardHeader>
+        <h2 className="text-lg font-semibold">Notifications</h2>
+        <p className="text-sm text-muted-foreground">
+          Choose what shows up in your Notification Feed.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {preferences === null ? (
+          <p className="text-sm text-muted-foreground">
+            Your Notification preferences can't be loaded right now. Please try
+            again later.
+          </p>
+        ) : (
+          preferences.map((preference) => (
+            <NotificationPreferenceSwitch
+              key={preference.category}
+              preference={preference}
+            />
+          ))
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Saves as soon as it's flipped. While the save is in flight the switch shows
+ * the new value; if it fails, the action leaves the preference as it was, so
+ * the switch falls back to the loader's value and a toast explains.
+ */
+function NotificationPreferenceSwitch({
+  preference,
+}: {
+  preference: PreferenceSwitch;
+}) {
+  const fetcher = useFetcher<{ error?: string; saved?: boolean }>();
+  const id = `notification-preference-${preference.category}`;
+  const copy = NOTIFICATION_PREFERENCE_COPY[preference.category];
+
+  const pending = fetcher.formData?.get("enabled");
+  const checked =
+    pending === undefined || pending === null
+      ? preference.enabled
+      : pending === "true";
+
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data?.error) {
+      toast.error(fetcher.data.error);
+    }
+  }, [fetcher.state, fetcher.data]);
+
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div className="space-y-1">
+        <Label htmlFor={id}>{copy.label}</Label>
+        <p className="text-xs text-muted-foreground">{copy.description}</p>
+      </div>
+      <Switch
+        id={id}
+        checked={checked}
+        onCheckedChange={(enabled) =>
+          fetcher.submit(
+            {
+              intent: "notification-preference",
+              category: preference.category,
+              enabled: String(enabled),
+            },
+            { method: "post" }
+          )
+        }
+      />
     </div>
   );
 }
