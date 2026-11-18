@@ -16,9 +16,8 @@ import { knockNotifications } from "~/lib/notifications-knock.server";
 //   KNOCK_SECRET_API_KEY is missing, so the Notification Feed shows its empty
 //   state.
 //
-// Everything here uses Cadence's names (notifications.ts). Archiving by
-// comment id, user sync (identify) and preferences join the port in later
-// tickets.
+// Everything here uses Cadence's names (notifications.ts). User sync
+// (identify) and preferences join the port in later tickets.
 //
 // Until user sync lands, the Knock adapter identifies recipients and the actor
 // inline on every trigger, which is why a trigger carries whole users.
@@ -50,6 +49,11 @@ export type NotificationTrigger = {
 export interface Notifications {
   trigger(trigger: NotificationTrigger): Promise<void>;
   /**
+   * Archives every Notification a comment caused (those whose data has this
+   * `commentId`), so they leave recipients' feeds.
+   */
+  archiveForComment(commentId: number): Promise<void>;
+  /**
    * Signs a short-lived user token for the person's Notification Feed. `null`
    * when there is no feed to connect to (the feed shows its empty state).
    */
@@ -65,6 +69,11 @@ export function noopNotifications(
         `[notifications] KNOCK_SECRET_API_KEY not set; not sending ${trigger.notification} (${trigger.idempotencyKey}) to users ${trigger.recipients.map((r) => r.id).join(", ")}`
       );
     },
+    async archiveForComment(commentId) {
+      log(
+        `[notifications] KNOCK_SECRET_API_KEY not set; not archiving Notifications for comment ${commentId}`
+      );
+    },
     async connectFeed() {
       return null;
     },
@@ -73,6 +82,7 @@ export function noopNotifications(
 
 export type FakeNotifications = Notifications & {
   triggers: NotificationTrigger[];
+  archivedCommentIds: number[];
 };
 
 /** In-memory adapter for tests. `failWith` makes every call reject. */
@@ -80,11 +90,17 @@ export function fakeNotifications(
   options: { failWith?: Error } = {}
 ): FakeNotifications {
   const triggers: NotificationTrigger[] = [];
+  const archivedCommentIds: number[] = [];
   return {
     triggers,
+    archivedCommentIds,
     async trigger(trigger) {
       if (options.failWith) throw options.failWith;
       triggers.push(trigger);
+    },
+    async archiveForComment(commentId) {
+      if (options.failWith) throw options.failWith;
+      archivedCommentIds.push(commentId);
     },
     async connectFeed() {
       if (options.failWith) throw options.failWith;
@@ -118,6 +134,24 @@ export async function sendNotification(
   } catch (error) {
     console.error(
       `[notifications] Failed to send ${trigger.notification} (${trigger.idempotencyKey})`,
+      error
+    );
+  }
+}
+
+/**
+ * Archives a deleted comment's Notifications best-effort: a failure is logged
+ * and never fails the delete.
+ */
+export async function archiveNotificationsForComment(
+  notifications: Notifications,
+  commentId: number
+): Promise<void> {
+  try {
+    await notifications.archiveForComment(commentId);
+  } catch (error) {
+    console.error(
+      `[notifications] Failed to archive Notifications for comment ${commentId}`,
       error
     );
   }
