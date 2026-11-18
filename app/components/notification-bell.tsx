@@ -240,6 +240,32 @@ function describe(notification: FeedNotification): {
         title: `${actor} replied to your question`,
         snippet: text(data.snippet) ?? text(data.lessonTitle),
       };
+    case "refundRequestConfirmation":
+      return {
+        title: `Refund request received for ${text(data.courseTitle) ?? "your course"}`,
+        snippet: `${text(data.amount) ?? "Your refund"} is under review.`,
+      };
+    case "refundRequestApproved":
+      return {
+        title: `Refund approved for ${text(data.courseTitle) ?? "your course"}`,
+        snippet:
+          text(data.decisionNote) ??
+          `${text(data.amount) ?? "Your money"} is on its way back to you.`,
+      };
+    case "refundRequestDeclined":
+      return {
+        title: `Refund declined for ${text(data.courseTitle) ?? "your course"}`,
+        snippet: [text(data.decisionNote), "You can raise a new request."]
+          .filter(Boolean)
+          .join(" "),
+      };
+    case "openRefundRequest":
+      return {
+        title: `${actor} requested a refund for ${text(data.courseTitle) ?? "a course"}`,
+        snippet: [text(data.amount), text(data.reason)]
+          .filter(Boolean)
+          .join(" · "),
+      };
     default:
       return { title: "New notification", snippet: null };
   }

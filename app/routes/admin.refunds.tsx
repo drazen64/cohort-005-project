@@ -22,6 +22,7 @@ import {
 } from "~/lib/refunds.server";
 import { RULE_BREAK_LABELS } from "~/lib/refund-rules";
 import { sendEmail } from "~/lib/mailer.server";
+import { defaultNotifications } from "~/lib/notifications.server";
 
 const refundFilterSchema = z
   .nativeEnum(RefundStatus)
@@ -106,20 +107,23 @@ export async function action({ request }: Route.ActionArgs) {
 
   const { intent, refundRequestId, note } = parsed.data;
 
+  const notifications = defaultNotifications();
   const result =
     intent === "approve"
-      ? approveRefundRequest(
+      ? await approveRefundRequest(
           db,
           refundRequestId,
           platformAdmin.id,
           note || null,
+          notifications,
           new Date()
         )
-      : declineRefundRequest(
+      : await declineRefundRequest(
           db,
           refundRequestId,
           platformAdmin.id,
           note,
+          notifications,
           new Date()
         );
 
