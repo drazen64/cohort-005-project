@@ -20,8 +20,7 @@ import { knockNotifications } from "~/lib/notifications-knock.server";
 //   KNOCK_SECRET_API_KEY is missing, so the Notification Feed shows its empty
 //   state.
 //
-// Everything here uses Cadence's names (notifications.ts). Archiving by
-// comment id joins the port in a later ticket.
+// Everything here uses Cadence's names (notifications.ts).
 //
 // Users are synced explicitly (`syncNotificationUser`), never inline on a
 // trigger: a user Knock learned about any other way would have no preference
@@ -55,6 +54,11 @@ export type NotificationTrigger = {
 export interface Notifications {
   trigger(trigger: NotificationTrigger): Promise<void>;
   /**
+   * Archives every Notification a comment caused (those whose data has this
+   * `commentId`), so they leave recipients' feeds.
+   */
+  archiveForComment(commentId: number): Promise<void>;
+  /**
    * Signs a short-lived user token for the person's Notification Feed. `null`
    * when there is no feed to connect to (the feed shows its empty state).
    */
@@ -80,6 +84,11 @@ export function noopNotifications(
     async trigger(trigger) {
       log(
         `[notifications] KNOCK_SECRET_API_KEY not set; not sending ${trigger.notification} (${trigger.idempotencyKey}) to users ${trigger.recipients.map((r) => r.id).join(", ")}`
+      );
+    },
+    async archiveForComment(commentId) {
+      log(
+        `[notifications] KNOCK_SECRET_API_KEY not set; not archiving Notifications for comment ${commentId}`
       );
     },
     async connectFeed() {
@@ -109,6 +118,7 @@ export type FakeNotifications = Notifications & {
   preferenceWrites: { userId: number; preferences: NotificationPreferences }[];
   /** Current preference sets by user id, as `getPreferences` reads them. */
   preferences: Map<number, NotificationPreferences>;
+  archivedCommentIds: number[];
 };
 
 /** In-memory adapter for tests. `failWith` makes every call reject. */
@@ -116,6 +126,7 @@ export function fakeNotifications(
   options: { failWith?: Error } = {}
 ): FakeNotifications {
   const triggers: NotificationTrigger[] = [];
+  const archivedCommentIds: number[] = [];
   const identified: NotificationUser[] = [];
   const preferenceWrites: FakeNotifications["preferenceWrites"] = [];
   const preferences = new Map<number, NotificationPreferences>();
@@ -124,9 +135,14 @@ export function fakeNotifications(
     identified,
     preferenceWrites,
     preferences,
+    archivedCommentIds,
     async trigger(trigger) {
       if (options.failWith) throw options.failWith;
       triggers.push(trigger);
+    },
+    async archiveForComment(commentId) {
+      if (options.failWith) throw options.failWith;
+      archivedCommentIds.push(commentId);
     },
     async connectFeed() {
       if (options.failWith) throw options.failWith;
@@ -198,5 +214,23 @@ export async function syncNotificationUser(
     }
   } catch (error) {
     console.error(`[notifications] Failed to sync user ${user.id}`, error);
+  }
+}
+
+/**
+ * Archives a deleted comment's Notifications best-effort: a failure is logged
+ * and never fails the delete.
+ */
+export async function archiveNotificationsForComment(
+  notifications: Notifications,
+  commentId: number
+): Promise<void> {
+  try {
+    await notifications.archiveForComment(commentId);
+  } catch (error) {
+    console.error(
+      `[notifications] Failed to archive Notifications for comment ${commentId}`,
+      error
+    );
   }
 }

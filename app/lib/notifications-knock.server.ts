@@ -97,6 +97,21 @@ export function knockNotifications(config: {
       );
     },
 
+    async archiveForComment(commentId) {
+      // Knock's trigger_data filter matches flat top-level values of the
+      // trigger data as sent, so `commentId` must stay a top-level number.
+      const messageIds: string[] = [];
+      for await (const message of knock.messages.list({
+        trigger_data: JSON.stringify({ commentId }),
+        engagement_status: ["unarchived"],
+      })) {
+        messageIds.push(message.id);
+      }
+      // Knock rejects an empty batch with 422.
+      if (messageIds.length === 0) return;
+      await knock.messages.batch.archive({ message_ids: messageIds });
+    },
+
     async connectFeed(userId) {
       const { publicApiKey, signingKey, feedChannelId } = config;
       if (!publicApiKey || !signingKey || !feedChannelId) return null;

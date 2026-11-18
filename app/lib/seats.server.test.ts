@@ -4,6 +4,7 @@ import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
 import { UserRole } from "~/db/schema";
 import { raiseRefundRequest } from "./refunds.server";
+import { fakeNotifications } from "./notifications.server";
 import { enrollUser } from "./enrollments.server";
 import { claimSeat } from "./seats.server";
 
@@ -122,9 +123,16 @@ describe("claimSeat", () => {
     expect(getSeat(codes[0]).redeemedByUserId).toBeNull();
   });
 
-  it("refuses a Seat while its Team Licence has an Open Refund Request", () => {
+  it("refuses a Seat while its Team Licence has an Open Refund Request", async () => {
     const { purchase, codes } = buySeats(2);
-    raiseRefundRequest(db, purchase.id, teamAdmin.id, "Team changed.", NOW);
+    await raiseRefundRequest(
+      db,
+      purchase.id,
+      teamAdmin.id,
+      "Team changed.",
+      fakeNotifications(),
+      NOW
+    );
 
     expect(claimSeat(db, codes[0], base.user.id, "", NOW)).toMatchObject({
       ok: false,
