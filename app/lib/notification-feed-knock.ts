@@ -1,4 +1,8 @@
-import Knock, { type FeedItem, type FeedStoreState } from "@knocklabs/client";
+import Knock, {
+  NetworkStatus,
+  type FeedItem,
+  type FeedStoreState,
+} from "@knocklabs/client";
 import type {
   FeedConnection,
   FeedNotification,
@@ -34,11 +38,19 @@ function toNotification(item: FeedItem): FeedNotification {
 }
 
 function toFeedState(state: FeedStoreState): FeedState {
+  // A live arrival can race a page load; never show the same row twice.
+  const seen = new Set<string>();
+  const items = state.items.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
   return {
-    notifications: state.items.map(toNotification),
+    notifications: items.map(toNotification),
     unseenCount: state.metadata.unseen_count,
     unreadCount: state.metadata.unread_count,
     loading: state.loading,
+    loadingMore: state.networkStatus === NetworkStatus.fetchMore,
     hasMore: state.pageInfo.after !== null,
   };
 }
@@ -69,12 +81,24 @@ export function knockFeed(
       await feed.fetch();
     },
     async loadMore() {
+      // Pages over Knock's `after` cursor. Knock skips the call while another
+      // request is in flight, so the same page is never fetched twice.
       if (feed.store.getState().pageInfo.after === null) return;
       await feed.fetchNextPage();
     },
     async markAllSeen() {
       // Bulk update by channel, so items that haven't loaded are covered too.
       await feed.markAllAsSeen();
+    },
+    async markRead(id) {
+      // Batch read on a single message id (never an empty list: Knock 422s).
+      const item = feed.store.getState().items.find((i) => i.id === id);
+      if (!item || item.read_at !== null) return;
+      await feed.markAsRead(item);
+    },
+    async markAllRead() {
+      // Bulk update by channel, so items that haven't loaded are covered too.
+      await feed.markAllAsRead();
     },
     dispose() {
       feed.dispose();

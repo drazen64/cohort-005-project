@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import {
   Bell,
+  Check,
   GraduationCap,
   MessageSquare,
   Receipt,
+  Settings,
   UsersRound,
 } from "lucide-react";
 import { cn } from "~/lib/utils";
@@ -17,10 +19,8 @@ import {
   type FeedState,
   type NotificationFeed,
 } from "~/lib/notification-feed";
-import {
-  NOTIFICATION_CATEGORIES,
-  type NotificationCategory,
-} from "~/lib/notifications";
+import { describeNotification } from "~/lib/notification-rows";
+import type { NotificationCategory } from "~/lib/notifications";
 
 // ─── The bell ───
 // Sits in the sidebar header. Its badge counts unseen Notifications; opening
@@ -154,9 +154,13 @@ function NotificationPopover({
   const navigate = useNavigate();
   const sentinel = useRef<HTMLDivElement>(null);
 
+  // Infinite scroll. The observer is rebuilt after every page, so a sentinel
+  // that is still in view once a short page lands asks for the next one too.
+  const loaded = state.notifications.length;
+  const busy = state.loading || state.loadingMore;
   useEffect(() => {
     const el = sentinel.current;
-    if (!el) return;
+    if (!el || !state.hasMore || busy) return;
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) {
         feed.loadMore().catch((error) => {
@@ -166,12 +170,27 @@ function NotificationPopover({
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [feed]);
+  }, [feed, loaded, state.hasMore, busy]);
 
+  function markRead(notification: FeedNotification) {
+    if (notification.readAt !== null) return;
+    feed.markRead(notification.id).catch((error) => {
+      console.error("[notifications] Could not mark read", error);
+    });
+  }
+
+  function markAllRead() {
+    feed.markAllRead().catch((error) => {
+      console.error("[notifications] Could not mark all read", error);
+    });
+  }
+
+  // Clicking marks read, then goes to the most specific place there is. A
+  // Notification with nowhere to go only marks itself read; the popover stays.
   function openNotification(notification: FeedNotification) {
-    const url = notification.data.url;
-    // Some Notifications have nowhere to go; the popover stays open.
-    if (typeof url !== "string") return;
+    markRead(notification);
+    const { url } = describeNotification(notification);
+    if (url === null) return;
     close();
     navigate(url);
   }
@@ -185,6 +204,23 @@ function NotificationPopover({
       <div className="flex items-center gap-2 bg-muted/60 px-4 py-3">
         <Bell className="size-4" />
         <span className="font-semibold">Notifications</span>
+        <button
+          type="button"
+          onClick={markAllRead}
+          disabled={state.unreadCount === 0}
+          className="ml-auto text-xs font-medium text-primary hover:underline disabled:opacity-40 disabled:hover:no-underline"
+        >
+          Mark all as read
+        </button>
+        <Link
+          to="/settings"
+          onClick={close}
+          title="Notification settings"
+          aria-label="Notification settings"
+          className="rounded-md p-1 text-muted-foreground hover:bg-background hover:text-foreground"
+        >
+          <Settings className="size-4" />
+        </Link>
       </div>
       <div className="flex-1 overflow-y-auto">
         {state.notifications.map((notification) => (
@@ -192,6 +228,7 @@ function NotificationPopover({
             key={notification.id}
             notification={notification}
             onOpen={openNotification}
+            onMarkRead={markRead}
           />
         ))}
         {state.notifications.length === 0 && !state.loading && (
@@ -203,7 +240,7 @@ function NotificationPopover({
           ref={sentinel}
           className="p-3 text-center text-xs text-muted-foreground"
         >
-          {state.loading
+          {busy
             ? "Loading…"
             : !state.hasMore &&
               state.notifications.length > 0 &&
@@ -214,6 +251,7 @@ function NotificationPopover({
   );
 }
 
+/** The small icon inset at the bottom-right of a row's avatar. */
 const categoryIcons: Record<NotificationCategory, React.ReactNode> = {
   discussionQuestions: <MessageSquare />,
   discussionReplies: <MessageSquare />,
@@ -223,90 +261,31 @@ const categoryIcons: Record<NotificationCategory, React.ReactNode> = {
   enrollments: <GraduationCap />,
 };
 
-function text(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
-}
-
-/** The row's title and one-line snippet, written by Cadence from trigger data. */
-function describe(notification: FeedNotification): {
-  title: string;
-  snippet: string | null;
-} {
-  const actor = notification.actor?.name ?? "Someone";
-  const { data } = notification;
-  switch (notification.notification) {
-    case "discussionReply":
-      return {
-        title: `${actor} replied to your question`,
-        snippet: text(data.snippet) ?? text(data.lessonTitle),
-      };
-    case "refundRequestConfirmation":
-      return {
-        title: `Refund request received for ${text(data.courseTitle) ?? "your course"}`,
-        snippet: `${text(data.amount) ?? "Your refund"} is under review.`,
-      };
-    case "refundRequestApproved":
-      return {
-        title: `Refund approved for ${text(data.courseTitle) ?? "your course"}`,
-        snippet:
-          text(data.decisionNote) ??
-          `${text(data.amount) ?? "Your money"} is on its way back to you.`,
-      };
-    case "refundRequestDeclined":
-      return {
-        title: `Refund declined for ${text(data.courseTitle) ?? "your course"}`,
-        snippet: [text(data.decisionNote), "You can raise a new request."]
-          .filter(Boolean)
-          .join(" "),
-      };
-    case "openRefundRequest":
-      return {
-        title: `${actor} requested a refund for ${text(data.courseTitle) ?? "a course"}`,
-        snippet: [text(data.amount), text(data.reason)]
-          .filter(Boolean)
-          .join(" · "),
-      };
-    default:
-      return { title: "New notification", snippet: null };
-  }
-}
-
-function timeAgo(iso: string) {
-  const seconds = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
-  return `${Math.floor(seconds / 86400)}d`;
-}
-
 function NotificationRow({
   notification,
   onOpen,
+  onMarkRead,
 }: {
   notification: FeedNotification;
   onOpen: (notification: FeedNotification) => void;
+  onMarkRead: (notification: FeedNotification) => void;
 }) {
-  const { title, snippet } = describe(notification);
+  const { title, snippet, category } = describeNotification(notification);
   const read = notification.readAt !== null;
-  const category = notification.notification
-    ? NOTIFICATION_CATEGORIES[notification.notification]
-    : null;
+  const actor = notification.actor?.name ? notification.actor : null;
+  const icon = category ? categoryIcons[category] : null;
 
   return (
-    <button
-      type="button"
-      onClick={() => onOpen(notification)}
-      className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-accent"
-    >
+    <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-accent">
       <span className="relative shrink-0">
-        {notification.actor ? (
+        {actor ? (
           <UserAvatar
-            name={notification.actor.name}
-            avatarUrl={notification.actor.avatarUrl}
+            name={actor.name}
+            avatarUrl={actor.avatarUrl}
             className={cn("size-9", read && "opacity-60")}
           />
         ) : (
-          // Sent by the system, not a person.
+          // Sent by Cadence, not a person (e.g. Refund Request confirmation).
           <span
             className={cn(
               "flex size-9 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground",
@@ -316,23 +295,50 @@ function NotificationRow({
             C
           </span>
         )}
-        {category && (
+        {icon && (
           <span className="absolute -bottom-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-popover text-muted-foreground ring-1 ring-border [&_svg]:size-2.5">
-            {categoryIcons[category]}
+            {icon}
           </span>
         )}
       </span>
-      <span className="min-w-0 flex-1">
+      <button
+        type="button"
+        onClick={() => onOpen(notification)}
+        className="min-w-0 flex-1 text-left"
+      >
         <span
           className={cn("block truncate text-sm", !read && "font-semibold")}
         >
           {title}
         </span>
-        <span className="block truncate text-xs text-muted-foreground">
+        <span
+          className="block truncate text-xs text-muted-foreground"
+          suppressHydrationWarning
+        >
           {snippet ? `${snippet} · ` : ""}
           {timeAgo(notification.insertedAt)}
         </span>
-      </span>
-    </button>
+      </button>
+      {!read && (
+        <button
+          type="button"
+          onClick={() => onMarkRead(notification)}
+          title="Mark as read"
+          aria-label="Mark as read"
+          className="shrink-0 rounded-full p-1 text-muted-foreground hover:bg-background hover:text-primary"
+        >
+          <Check className="size-4" />
+        </button>
+      )}
+    </div>
   );
+}
+
+function timeAgo(iso: string) {
+  const seconds = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (Number.isNaN(seconds)) return "";
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86400)}d`;
 }

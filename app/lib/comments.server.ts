@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { comments, courses, lessons, modules, users } from "~/db/schema";
 import { MAX_COMMENT_LENGTH, MIN_COMMENT_LENGTH } from "~/lib/comments";
 import {
+  archiveNotificationsForComment,
   sendNotification,
   type NotificationUser,
   type Notifications,
@@ -28,6 +29,7 @@ function getCourseForLesson(db: Db, lessonId: number) {
       courseId: courses.id,
       courseTitle: courses.title,
       courseSlug: courses.slug,
+      instructorId: courses.instructorId,
       lessonTitle: lessons.title,
     })
     .from(lessons)
@@ -78,6 +80,7 @@ function snippetOf(body: string) {
  * Posts a Discussion Question (`parentId` null) or a Discussion Reply to one.
  * Throws an Error with a user-facing message when the comment isn't allowed.
  *
+ * A Discussion Question notifies the course's Instructor, unless they asked it.
  * A Discussion Reply notifies the question's author, unless they wrote it.
  */
 export async function createComment(
@@ -122,6 +125,30 @@ export async function createComment(
     .returning()
     .get();
 
+  const url = `/courses/${course.courseSlug}/lessons/${lessonId}#comment-${comment.id}`;
+
+  if (!parent && course.instructorId !== userId) {
+    const recipient = getNotificationUser(db, course.instructorId);
+    const actor = getNotificationUser(db, userId);
+    if (recipient && actor) {
+      await sendNotification(notifications, {
+        notification: "discussionQuestion",
+        recipients: [recipient],
+        actor,
+        idempotencyKey: `discussion-question:${comment.id}`,
+        // `commentId` stays a top-level scalar: deleting the comment finds
+        // these Notifications by it (archiveForComment).
+        data: {
+          commentId: comment.id,
+          courseTitle: course.courseTitle,
+          lessonTitle: course.lessonTitle,
+          snippet: snippetOf(comment.body),
+          url,
+        },
+      });
+    }
+  }
+
   if (parent && parent.userId !== userId) {
     const recipient = getNotificationUser(db, parent.userId);
     const actor = getNotificationUser(db, userId);
@@ -137,7 +164,7 @@ export async function createComment(
           courseTitle: course.courseTitle,
           lessonTitle: course.lessonTitle,
           snippet: snippetOf(comment.body),
-          url: `/courses/${course.courseSlug}/lessons/${lessonId}#comment-${comment.id}`,
+          url,
         },
       });
     }
@@ -179,14 +206,18 @@ export function updateComment(
  * Soft-deletes a comment. Its author can delete it, and so can staff
  * (`isStaff`: the course's Instructor or a Platform Admin). Deleting an
  * already-deleted comment changes nothing.
+ *
+ * Archives the Notifications this comment caused. A deleted Discussion
+ * Question's replies stay visible, so their Notifications stay too.
  */
-export function deleteComment(
+export async function deleteComment(
   db: Db,
   commentId: number,
   userId: number,
   isStaff: boolean,
+  notifications: Notifications,
   now: Date
-): Comment {
+): Promise<Comment> {
   const existing = getComment(db, commentId);
   if (!existing) {
     throw new Error("Comment not found");
@@ -198,10 +229,14 @@ export function deleteComment(
     return existing;
   }
 
-  return db
+  const deleted = db
     .update(comments)
     .set({ deletedAt: now.toISOString() })
     .where(eq(comments.id, commentId))
     .returning()
     .get();
+
+  await archiveNotificationsForComment(notifications, commentId);
+
+  return deleted;
 }
