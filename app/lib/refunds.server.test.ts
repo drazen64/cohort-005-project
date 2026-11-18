@@ -779,6 +779,28 @@ describe("Refund Request Notifications", () => {
     );
   });
 
+  it("doesn't tell a Platform Admin about the Refund Request they raised themselves", async () => {
+    const otherAdmin = db
+      .insert(schema.users)
+      .values({
+        name: "Sam Admin",
+        email: "sam@example.com",
+        role: UserRole.Admin,
+      })
+      .returning()
+      .get();
+    const purchase = buyForSelf(platformAdmin.id);
+
+    await raise(purchase.id, platformAdmin.id);
+
+    expect(sent("openRefundRequest")).toMatchObject([
+      { recipients: [{ id: otherAdmin.id }], actor: { id: platformAdmin.id } },
+    ]);
+    expect(sent("refundRequestConfirmation")).toMatchObject([
+      { recipients: [{ id: platformAdmin.id }] },
+    ]);
+  });
+
   it("treats the Team Admin as the buyer of a Team Licence", async () => {
     const priya = addLearner("Priya");
     const { purchase } = buySeats(priya.id, 2);
