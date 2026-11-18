@@ -5,7 +5,7 @@ import {
   type NotificationUser,
   type Notifications,
 } from "~/lib/notifications.server";
-import type { Db } from "~/lib/refunds.server";
+import type { Db } from "~/db";
 
 // ─── Enrollments ───
 // Giving a Student their Enrollment on a course, through an Individual Purchase

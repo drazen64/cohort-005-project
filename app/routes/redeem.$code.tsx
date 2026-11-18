@@ -6,7 +6,7 @@ import type { Route } from "./+types/redeem.$code";
 import { getCurrentUserId } from "~/lib/session";
 import { resolveCountry } from "~/lib/country.server";
 import { parseParams, parseFormData } from "~/lib/validation";
-import { getSeatAvailability } from "~/lib/refunds.server";
+import { getSeatAvailability } from "~/lib/seats.server";
 import { SEAT_ON_HOLD, SEAT_REFUNDED, claimSeat } from "~/lib/seats.server";
 import { defaultNotifications } from "~/lib/notifications.server";
 import { Card, CardContent } from "~/components/ui/card";

@@ -7,7 +7,7 @@ import {
   type NotificationCategory,
 } from "~/lib/notifications";
 import type { Notifications } from "~/lib/notifications.server";
-import type { Db } from "~/lib/refunds.server";
+import type { Db } from "~/db";
 
 // ─── Notification preferences ───
 // The `/settings` Notifications card: one switch per preference category,

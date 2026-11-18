@@ -1,11 +1,18 @@
 import { and, count, eq, isNull } from "drizzle-orm";
-import { coupons, courses, enrollments, purchases } from "~/db/schema";
+import type { Db } from "~/db";
+import {
+  coupons,
+  courses,
+  enrollments,
+  purchases,
+  refunds,
+  RefundStatus,
+} from "~/db/schema";
 import { enrollUser, getNotificationUser } from "~/lib/enrollments.server";
 import {
   sendNotification,
   type Notifications,
 } from "~/lib/notifications.server";
-import { getSeatAvailability, type Db } from "~/lib/refunds.server";
 
 // ─── Seats ───
 // A Student claiming a Seat on a Team Licence, which gives them an Enrollment.
@@ -19,6 +26,32 @@ export const SEAT_ON_HOLD =
   "This seat can't be claimed right now. Ask the person who shared it with you.";
 export const SEAT_REFUNDED =
   "This seat is no longer available. Ask the person who shared it with you.";
+
+type Seat = typeof coupons.$inferSelect;
+
+export type SeatAvailability = "available" | "claimed" | "on_hold" | "refunded";
+
+/**
+ * Whether a Seat can be claimed right now. A Team Licence's Unclaimed Seats are
+ * on hold while it has an Open Refund Request, and can never be claimed once
+ * that request is approved.
+ */
+export function getSeatAvailability(db: Db, seat: Seat): SeatAvailability {
+  if (seat.redeemedAt !== null) return "claimed";
+  if (seat.refundedAt !== null) return "refunded";
+  const openRefundRequest = db
+    .select({ id: refunds.id })
+    .from(refunds)
+    .where(
+      and(
+        eq(refunds.purchaseId, seat.purchaseId),
+        eq(refunds.status, RefundStatus.Open)
+      )
+    )
+    .get();
+  if (openRefundRequest) return "on_hold";
+  return "available";
+}
 
 export type ClaimSeatResult =
   | { ok: true; enrollment: typeof enrollments.$inferSelect }
@@ -113,7 +146,7 @@ export async function claimSeat(
  */
 async function notifySeatClaimed(
   db: Db,
-  seat: typeof coupons.$inferSelect,
+  seat: Seat,
   teamAdminId: number,
   claimedById: number,
   notifications: Notifications

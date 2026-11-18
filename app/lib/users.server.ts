@@ -4,7 +4,7 @@ import {
   syncNotificationUser,
   type Notifications,
 } from "~/lib/notifications.server";
-import type { Db } from "~/lib/refunds.server";
+import type { Db } from "~/db";
 
 // ─── Users ───
 // Signing up and editing a person's details. Every change Knock shows in

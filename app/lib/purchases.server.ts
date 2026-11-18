@@ -9,7 +9,7 @@ import {
 } from "~/db/schema";
 import { enrollUser } from "~/lib/enrollments.server";
 import type { Notifications } from "~/lib/notifications.server";
-import type { Db } from "~/lib/refunds.server";
+import type { Db } from "~/db";
 
 // ─── Purchases ───
 // Buying a course: an Individual Purchase, which enrols the buyer, or a Team
