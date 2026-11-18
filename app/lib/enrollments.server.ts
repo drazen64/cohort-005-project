@@ -1,5 +1,10 @@
 import { and, eq } from "drizzle-orm";
-import { courses, enrollments } from "~/db/schema";
+import { courses, enrollments, users } from "~/db/schema";
+import {
+  sendNotification,
+  type NotificationUser,
+  type Notifications,
+} from "~/lib/notifications.server";
 import type { Db } from "~/lib/refunds.server";
 
 // ─── Enrollments ───
@@ -8,6 +13,7 @@ import type { Db } from "~/lib/refunds.server";
 //
 // Every function takes the database first, so tests can hand in an in-memory
 // one, and `now` last. Uses positional parameters (project convention).
+// Functions that fire Notifications also take the Notifications port.
 
 type Enrollment = typeof enrollments.$inferSelect;
 
@@ -15,13 +21,18 @@ type Enrollment = typeof enrollments.$inferSelect;
  * Enrols a Student on a course. A Student has at most one Enrollment per
  * course, so this throws if they already have one. A Lapsed Student has none
  * and can be enrolled again.
+ *
+ * Once saved, the course's Instructor gets a New Enrollment Notification,
+ * unless they enrolled themselves. Enrollments are off in the default
+ * preferences, so it only reaches Instructors who opted in.
  */
-export function enrollUser(
+export async function enrollUser(
   db: Db,
   userId: number,
   courseId: number,
+  notifications: Notifications,
   now: Date
-): Enrollment {
+): Promise<Enrollment> {
   const existing = db
     .select()
     .from(enrollments)
@@ -42,9 +53,47 @@ export function enrollUser(
     throw new Error("Course not found");
   }
 
-  return db
+  const enrollment = db
     .insert(enrollments)
     .values({ userId, courseId, enrolledAt: now.toISOString() })
     .returning()
+    .get();
+
+  if (course.instructorId !== userId) {
+    const recipient = getNotificationUser(db, course.instructorId);
+    const actor = getNotificationUser(db, userId);
+    if (recipient && actor) {
+      await sendNotification(notifications, {
+        notification: "enrollment",
+        recipients: [recipient],
+        actor,
+        idempotencyKey: `enrollment:${enrollment.id}`,
+        data: {
+          enrollmentId: enrollment.id,
+          courseId: course.id,
+          courseTitle: course.title,
+          url: `/instructor/${course.id}/students`,
+        },
+      });
+    }
+  }
+
+  return enrollment;
+}
+
+/** A Cadence user as a Notification's recipient or sender. */
+export function getNotificationUser(
+  db: Db,
+  userId: number
+): NotificationUser | undefined {
+  return db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      avatarUrl: users.avatarUrl,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
     .get();
 }
