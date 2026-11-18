@@ -66,11 +66,23 @@ function getSeat(code: string) {
     .get()!;
 }
 
+function addStudent(name: string, email: string) {
+  return db
+    .insert(schema.users)
+    .values({ name, email, role: UserRole.Student })
+    .returning()
+    .get();
+}
+
+function claim(code: string, userId: number, country = "") {
+  return claimSeat(db, code, userId, country, fakeNotifications(), NOW);
+}
+
 describe("claimSeat", () => {
-  it("claims an Unclaimed Seat and enrols the Student, stamped at now", () => {
+  it("claims an Unclaimed Seat and enrols the Student, stamped at now", async () => {
     const { codes } = buySeats(2);
 
-    const result = claimSeat(db, codes[0], base.user.id, "", NOW);
+    const result = await claim(codes[0], base.user.id);
 
     expect(result).toMatchObject({
       ok: true,
@@ -86,37 +98,35 @@ describe("claimSeat", () => {
     });
   });
 
-  it("refuses a code that doesn't exist", () => {
-    expect(claimSeat(db, "NOPE", base.user.id, "", NOW)).toEqual({
+  it("refuses a code that doesn't exist", async () => {
+    expect(await claim("NOPE", base.user.id)).toEqual({
       ok: false,
       error: "Coupon not found",
     });
   });
 
-  it("refuses a Claimed Seat", () => {
+  it("refuses a Claimed Seat", async () => {
     const { codes } = buySeats(1);
-    const other = db
-      .insert(schema.users)
-      .values({
-        name: "Olly",
-        email: "olly@example.com",
-        role: UserRole.Student,
-      })
-      .returning()
-      .get();
-    claimSeat(db, codes[0], other.id, "", NOW);
+    const other = addStudent("Olly", "olly@example.com");
+    await claim(codes[0], other.id);
 
-    expect(claimSeat(db, codes[0], base.user.id, "", NOW)).toEqual({
+    expect(await claim(codes[0], base.user.id)).toEqual({
       ok: false,
       error: "Coupon has already been redeemed",
     });
   });
 
-  it("refuses a Student who is already enrolled, leaving the Seat unclaimed", () => {
+  it("refuses a Student who is already enrolled, leaving the Seat unclaimed", async () => {
     const { codes } = buySeats(1);
-    enrollUser(db, base.user.id, base.course.id, NOW);
+    await enrollUser(
+      db,
+      base.user.id,
+      base.course.id,
+      fakeNotifications(),
+      NOW
+    );
 
-    expect(claimSeat(db, codes[0], base.user.id, "", NOW)).toEqual({
+    expect(await claim(codes[0], base.user.id)).toEqual({
       ok: false,
       error: "You are already enrolled in this course",
     });
@@ -134,20 +144,136 @@ describe("claimSeat", () => {
       NOW
     );
 
-    expect(claimSeat(db, codes[0], base.user.id, "", NOW)).toMatchObject({
+    expect(await claim(codes[0], base.user.id)).toMatchObject({
       ok: false,
       error: expect.stringContaining("can't be claimed right now"),
     });
   });
 
-  it("refuses a Student claiming from another country than the purchaser", () => {
+  it("refuses a Student claiming from another country than the purchaser", async () => {
     const { codes } = buySeats(1, "DE");
 
-    expect(claimSeat(db, codes[0], base.user.id, "FR", NOW)).toEqual({
+    expect(await claim(codes[0], base.user.id, "FR")).toEqual({
       ok: false,
       error:
         "This coupon can only be redeemed from the same country as the purchaser",
     });
-    expect(claimSeat(db, codes[0], base.user.id, "DE", NOW).ok).toBe(true);
+    expect((await claim(codes[0], base.user.id, "DE")).ok).toBe(true);
+  });
+
+  describe("Notifications", () => {
+    it("tells the owning Team Admin who claimed a Seat, on which course, and how many Seats are left", async () => {
+      const { purchase, codes } = buySeats(3);
+      const notifications = fakeNotifications();
+
+      await claimSeat(db, codes[0], base.user.id, "", notifications, NOW);
+
+      const seat = getSeat(codes[0]);
+      expect(
+        notifications.triggers.find((t) => t.notification === "seatClaimed")
+      ).toEqual({
+        notification: "seatClaimed",
+        recipients: [
+          {
+            id: teamAdmin.id,
+            name: "Tess Admin",
+            email: "tess@example.com",
+            avatarUrl: null,
+          },
+        ],
+        actor: {
+          id: base.user.id,
+          name: "Test User",
+          email: "test@example.com",
+          avatarUrl: null,
+        },
+        idempotencyKey: `seat-claimed:${seat.id}`,
+        data: {
+          seatId: seat.id,
+          purchaseId: purchase.id,
+          courseTitle: "Test Course",
+          seatsLeft: 2,
+          url: "/team",
+        },
+      });
+    });
+
+    it("sends one Notification per claim, counting down to no Seats left", async () => {
+      const { codes } = buySeats(2);
+      const other = addStudent("Olly", "olly@example.com");
+      const notifications = fakeNotifications();
+
+      await claimSeat(db, codes[0], base.user.id, "", notifications, NOW);
+      await claimSeat(db, codes[1], other.id, "", notifications, NOW);
+
+      expect(
+        notifications.triggers
+          .filter((t) => t.notification === "seatClaimed")
+          .map((t) => t.data.seatsLeft)
+      ).toEqual([1, 0]);
+    });
+
+    it("tells the course's Instructor about the new Enrollment", async () => {
+      const { codes } = buySeats(1);
+      const notifications = fakeNotifications();
+
+      const result = await claimSeat(
+        db,
+        codes[0],
+        base.user.id,
+        "",
+        notifications,
+        NOW
+      );
+
+      const enrollment = notifications.triggers.find(
+        (t) => t.notification === "enrollment"
+      );
+      expect(enrollment).toMatchObject({
+        recipients: [{ id: base.instructor.id }],
+        actor: { id: base.user.id },
+        idempotencyKey: result.ok
+          ? `enrollment:${result.enrollment.id}`
+          : "unreachable",
+      });
+    });
+
+    it("doesn't tell the Team Admin about claiming a Seat themselves", async () => {
+      const { codes } = buySeats(2);
+      const notifications = fakeNotifications();
+
+      await claimSeat(db, codes[0], teamAdmin.id, "", notifications, NOW);
+
+      expect(
+        notifications.triggers.filter((t) => t.notification === "seatClaimed")
+      ).toEqual([]);
+    });
+
+    it("sends nothing when the claim is refused", async () => {
+      const notifications = fakeNotifications();
+
+      await claimSeat(db, "NOPE", base.user.id, "", notifications, NOW);
+
+      expect(notifications.triggers).toEqual([]);
+    });
+
+    it("still claims the Seat when Notifications fail", async () => {
+      const { codes } = buySeats(1);
+      const notifications = fakeNotifications({
+        failWith: new Error("Knock is down"),
+      });
+
+      const result = await claimSeat(
+        db,
+        codes[0],
+        base.user.id,
+        "",
+        notifications,
+        NOW
+      );
+
+      expect(result.ok).toBe(true);
+      expect(getSeat(codes[0]).redeemedByUserId).toBe(base.user.id);
+    });
   });
 });
