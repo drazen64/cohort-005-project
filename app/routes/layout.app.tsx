@@ -5,6 +5,8 @@ import { DevUI } from "~/components/dev-ui";
 import { Toaster } from "sonner";
 import { getCurrentUserId, getDevCountry } from "~/lib/session";
 import { getCountryTierInfo, COUNTRIES } from "~/lib/ppp";
+import { defaultNotifications } from "~/lib/notifications.server";
+import type { FeedConnection } from "~/lib/notification-feed";
 import { eq, and, or, sql, desc } from "drizzle-orm";
 import { db } from "~/db";
 import {
@@ -171,6 +173,19 @@ function getRecentlyProgressedCourses(userId: number, limit: number = 3) {
     .all();
 }
 
+// The Notification Feed is never worth failing the page for: without a
+// connection the bell just shows the empty feed.
+async function connectNotificationFeed(
+  userId: number
+): Promise<FeedConnection | null> {
+  try {
+    return await defaultNotifications().connectFeed(userId);
+  } catch (error) {
+    console.error("[notifications] Could not connect the feed", error);
+    return null;
+  }
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
   const users = getAllUsers();
   const currentUserId = await getCurrentUserId(request);
@@ -185,7 +200,11 @@ export async function loader({ request }: Route.LoaderArgs) {
           course.courseId
         );
         const totalLessons = getTotalLessonCount(course.courseId);
-        const progress = calculateProgress(currentUserId, course.courseId, false);
+        const progress = calculateProgress(
+          currentUserId,
+          course.courseId,
+          false
+        );
         return {
           courseId: course.courseId,
           title: course.courseTitle,
@@ -213,6 +232,9 @@ export async function loader({ request }: Route.LoaderArgs) {
     countryTierInfo,
     countries: COUNTRIES,
     isTeamAdmin: currentUserId ? isTeamAdmin(currentUserId) : false,
+    notificationFeed: currentUserId
+      ? await connectNotificationFeed(currentUserId)
+      : null,
   };
 }
 
@@ -225,6 +247,7 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
     countryTierInfo,
     countries,
     isTeamAdmin: userIsTeamAdmin,
+    notificationFeed,
   } = loaderData;
 
   return (
@@ -233,6 +256,7 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
         currentUser={currentUser}
         recentCourses={recentCourses}
         isTeamAdmin={userIsTeamAdmin}
+        notificationFeed={notificationFeed}
       />
       <main className="flex-1 overflow-y-auto">
         <Outlet />

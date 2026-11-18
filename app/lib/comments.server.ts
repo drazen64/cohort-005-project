@@ -1,6 +1,11 @@
 import { eq } from "drizzle-orm";
-import { comments, courses, lessons, modules } from "~/db/schema";
+import { comments, courses, lessons, modules, users } from "~/db/schema";
 import { MAX_COMMENT_LENGTH, MIN_COMMENT_LENGTH } from "~/lib/comments";
+import {
+  sendNotification,
+  type NotificationUser,
+  type Notifications,
+} from "~/lib/notifications.server";
 import type { Db } from "~/lib/refunds.server";
 
 // ─── Comments ───
@@ -9,6 +14,7 @@ import type { Db } from "~/lib/refunds.server";
 //
 // Every function takes the database first, so tests can hand in an in-memory
 // one, and `now` last. Uses positional parameters (project convention).
+// Functions that fire Notifications also take the Notifications port.
 
 type Comment = typeof comments.$inferSelect;
 
@@ -18,7 +24,12 @@ function getComment(db: Db, commentId: number) {
 
 function getCourseForLesson(db: Db, lessonId: number) {
   return db
-    .select({ courseId: courses.id })
+    .select({
+      courseId: courses.id,
+      courseTitle: courses.title,
+      courseSlug: courses.slug,
+      lessonTitle: lessons.title,
+    })
     .from(lessons)
     .innerJoin(modules, eq(lessons.moduleId, modules.id))
     .innerJoin(courses, eq(modules.courseId, courses.id))
@@ -39,18 +50,45 @@ function assertValidBody(body: string) {
   return trimmed;
 }
 
+function getNotificationUser(
+  db: Db,
+  userId: number
+): NotificationUser | undefined {
+  return db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      avatarUrl: users.avatarUrl,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .get();
+}
+
+const SNIPPET_LENGTH = 120;
+
+function snippetOf(body: string) {
+  return body.length > SNIPPET_LENGTH
+    ? `${body.slice(0, SNIPPET_LENGTH - 1)}…`
+    : body;
+}
+
 /**
  * Posts a Discussion Question (`parentId` null) or a Discussion Reply to one.
  * Throws an Error with a user-facing message when the comment isn't allowed.
+ *
+ * A Discussion Reply notifies the question's author, unless they wrote it.
  */
-export function createComment(
+export async function createComment(
   db: Db,
   userId: number,
   lessonId: number,
   parentId: number | null,
   body: string,
+  notifications: Notifications,
   now: Date
-): Comment {
+): Promise<Comment> {
   const trimmed = assertValidBody(body);
 
   const course = getCourseForLesson(db, lessonId);
@@ -58,8 +96,9 @@ export function createComment(
     throw new Error("Lesson not found");
   }
 
+  let parent: Comment | undefined;
   if (parentId !== null) {
-    const parent = getComment(db, parentId);
+    parent = getComment(db, parentId);
     if (!parent) {
       throw new Error("Parent comment not found");
     }
@@ -71,7 +110,7 @@ export function createComment(
     }
   }
 
-  return db
+  const comment = db
     .insert(comments)
     .values({
       userId,
@@ -82,6 +121,29 @@ export function createComment(
     })
     .returning()
     .get();
+
+  if (parent && parent.userId !== userId) {
+    const recipient = getNotificationUser(db, parent.userId);
+    const actor = getNotificationUser(db, userId);
+    if (recipient && actor) {
+      await sendNotification(notifications, {
+        notification: "discussionReply",
+        recipients: [recipient],
+        actor,
+        idempotencyKey: `discussion-reply:${comment.id}`,
+        data: {
+          commentId: comment.id,
+          questionId: parent.id,
+          courseTitle: course.courseTitle,
+          lessonTitle: course.lessonTitle,
+          snippet: snippetOf(comment.body),
+          url: `/courses/${course.courseSlug}/lessons/${lessonId}#comment-${comment.id}`,
+        },
+      });
+    }
+  }
+
+  return comment;
 }
 
 /** Edits the author's own comment. Throws when it isn't theirs or is deleted. */

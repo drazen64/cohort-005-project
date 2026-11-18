@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
 import { createComment, deleteComment, updateComment } from "./comments.server";
+import { fakeNotifications } from "./notifications.server";
 
 type TestDb = ReturnType<typeof createTestDb>;
 
@@ -10,10 +11,12 @@ const NOW = new Date(2026, 9, 6, 12, 0, 0);
 let db: TestDb;
 let base: ReturnType<typeof seedBaseData>;
 let lessonId: number;
+let notifications: ReturnType<typeof fakeNotifications>;
 
 beforeEach(() => {
   db = createTestDb();
   base = seedBaseData(db);
+  notifications = fakeNotifications();
 
   const module = db
     .insert(schema.modules)
@@ -29,13 +32,14 @@ beforeEach(() => {
 });
 
 describe("createComment", () => {
-  it("posts a Discussion Question with a trimmed body, stamped at now", () => {
-    const question = createComment(
+  it("posts a Discussion Question with a trimmed body, stamped at now", async () => {
+    const question = await createComment(
       db,
       base.user.id,
       lessonId,
       null,
       "  How do closures work?  ",
+      notifications,
       NOW
     );
 
@@ -48,92 +52,107 @@ describe("createComment", () => {
     });
   });
 
-  it("posts a Discussion Reply under a Discussion Question", () => {
-    const question = createComment(
+  it("posts a Discussion Reply under a Discussion Question", async () => {
+    const question = await createComment(
       db,
       base.user.id,
       lessonId,
       null,
       "Why?",
+      notifications,
       NOW
     );
-    const reply = createComment(
+    const reply = await createComment(
       db,
       base.instructor.id,
       lessonId,
       question.id,
       "Because.",
+      notifications,
       NOW
     );
 
     expect(reply).toMatchObject({ parentId: question.id, body: "Because." });
   });
 
-  it("keeps replies one level deep", () => {
-    const question = createComment(
+  it("keeps replies one level deep", async () => {
+    const question = await createComment(
       db,
       base.user.id,
       lessonId,
       null,
       "Why?",
+      notifications,
       NOW
     );
-    const reply = createComment(
+    const reply = await createComment(
       db,
       base.instructor.id,
       lessonId,
       question.id,
       "Because.",
+      notifications,
       NOW
     );
 
-    expect(() =>
-      createComment(db, base.user.id, lessonId, reply.id, "But why?", NOW)
-    ).toThrow("Replies can only be one level deep");
+    await expect(
+      createComment(
+        db,
+        base.user.id,
+        lessonId,
+        reply.id,
+        "But why?",
+        notifications,
+        NOW
+      )
+    ).rejects.toThrow("Replies can only be one level deep");
   });
 
-  it("refuses a reply to a question on another lesson", () => {
+  it("refuses a reply to a question on another lesson", async () => {
     const otherLessonId = db
       .insert(schema.lessons)
       .values({ moduleId: 1, title: "Lesson 2", position: 2 })
       .returning()
       .get().id;
-    const question = createComment(
+    const question = await createComment(
       db,
       base.user.id,
       otherLessonId,
       null,
       "Why?",
+      notifications,
       NOW
     );
 
-    expect(() =>
+    await expect(
       createComment(
         db,
         base.instructor.id,
         lessonId,
         question.id,
         "Because.",
+        notifications,
         NOW
       )
-    ).toThrow("Parent comment belongs to a different lesson");
+    ).rejects.toThrow("Parent comment belongs to a different lesson");
   });
 
-  it("refuses an empty comment", () => {
-    expect(() =>
-      createComment(db, base.user.id, lessonId, null, "   ", NOW)
-    ).toThrow("Comment cannot be empty");
+  it("refuses an empty comment", async () => {
+    await expect(
+      createComment(db, base.user.id, lessonId, null, "   ", notifications, NOW)
+    ).rejects.toThrow("Comment cannot be empty");
   });
 });
 
 describe("updateComment", () => {
-  it("lets the author edit their comment, stamping editedAt", () => {
-    const question = createComment(
+  it("lets the author edit their comment, stamping editedAt", async () => {
+    const question = await createComment(
       db,
       base.user.id,
       lessonId,
       null,
       "Why?",
+      notifications,
       NOW
     );
 
@@ -145,13 +164,14 @@ describe("updateComment", () => {
     });
   });
 
-  it("refuses an edit by anyone else", () => {
-    const question = createComment(
+  it("refuses an edit by anyone else", async () => {
+    const question = await createComment(
       db,
       base.user.id,
       lessonId,
       null,
       "Why?",
+      notifications,
       NOW
     );
 
@@ -162,13 +182,14 @@ describe("updateComment", () => {
 });
 
 describe("deleteComment", () => {
-  it("lets the author soft-delete their comment at now", () => {
-    const question = createComment(
+  it("lets the author soft-delete their comment at now", async () => {
+    const question = await createComment(
       db,
       base.user.id,
       lessonId,
       null,
       "Why?",
+      notifications,
       NOW
     );
 
@@ -180,13 +201,14 @@ describe("deleteComment", () => {
     });
   });
 
-  it("lets staff delete someone else's comment", () => {
-    const question = createComment(
+  it("lets staff delete someone else's comment", async () => {
+    const question = await createComment(
       db,
       base.user.id,
       lessonId,
       null,
       "Why?",
+      notifications,
       NOW
     );
 
@@ -195,13 +217,14 @@ describe("deleteComment", () => {
     ).toBe(NOW.toISOString());
   });
 
-  it("refuses a non-staff user deleting someone else's comment", () => {
-    const question = createComment(
+  it("refuses a non-staff user deleting someone else's comment", async () => {
+    const question = await createComment(
       db,
       base.user.id,
       lessonId,
       null,
       "Why?",
+      notifications,
       NOW
     );
 
@@ -210,13 +233,14 @@ describe("deleteComment", () => {
     ).toThrow("You can only delete your own comments");
   });
 
-  it("leaves an already-deleted comment as it was", () => {
-    const question = createComment(
+  it("leaves an already-deleted comment as it was", async () => {
+    const question = await createComment(
       db,
       base.user.id,
       lessonId,
       null,
       "Why?",
+      notifications,
       NOW
     );
     deleteComment(db, question.id, base.user.id, false, NOW);
@@ -227,13 +251,14 @@ describe("deleteComment", () => {
     ).toBe(NOW.toISOString());
   });
 
-  it("refuses to edit a deleted comment", () => {
-    const question = createComment(
+  it("refuses to edit a deleted comment", async () => {
+    const question = await createComment(
       db,
       base.user.id,
       lessonId,
       null,
       "Why?",
+      notifications,
       NOW
     );
     deleteComment(db, question.id, base.user.id, false, NOW);
@@ -241,5 +266,96 @@ describe("deleteComment", () => {
     expect(() =>
       updateComment(db, question.id, base.user.id, "Back", NOW)
     ).toThrow("Comment has been deleted");
+  });
+});
+
+describe("Discussion Reply Notification", () => {
+  it("notifies only the question's author when someone else replies", async () => {
+    const question = await createComment(
+      db,
+      base.user.id,
+      lessonId,
+      null,
+      "How do closures work?",
+      notifications,
+      NOW
+    );
+    const reply = await createComment(
+      db,
+      base.instructor.id,
+      lessonId,
+      question.id,
+      "A closure keeps the variables of the scope it was made in.",
+      notifications,
+      NOW
+    );
+
+    const replies = notifications.triggers.filter(
+      (t) => t.notification === "discussionReply"
+    );
+    expect(replies).toHaveLength(1);
+    expect(replies[0]).toMatchObject({
+      notification: "discussionReply",
+      recipients: [{ id: base.user.id }],
+      actor: { id: base.instructor.id, name: "Test Instructor" },
+      idempotencyKey: `discussion-reply:${reply.id}`,
+      data: {
+        commentId: reply.id,
+        lessonTitle: "Lesson 1",
+        courseTitle: "Test Course",
+        snippet: "A closure keeps the variables of the scope it was made in.",
+        url: `/courses/test-course/lessons/${lessonId}#comment-${reply.id}`,
+      },
+    });
+  });
+
+  it("sends nothing when the author replies in their own thread", async () => {
+    const question = await createComment(
+      db,
+      base.user.id,
+      lessonId,
+      null,
+      "How do closures work?",
+      notifications,
+      NOW
+    );
+    await createComment(
+      db,
+      base.user.id,
+      lessonId,
+      question.id,
+      "Never mind, I found it.",
+      notifications,
+      NOW
+    );
+
+    expect(
+      notifications.triggers.filter((t) => t.notification === "discussionReply")
+    ).toEqual([]);
+  });
+
+  it("still posts the reply when sending the Notification fails", async () => {
+    const failing = fakeNotifications({ failWith: new Error("Knock is down") });
+    const question = await createComment(
+      db,
+      base.user.id,
+      lessonId,
+      null,
+      "Why?",
+      failing,
+      NOW
+    );
+
+    const reply = await createComment(
+      db,
+      base.instructor.id,
+      lessonId,
+      question.id,
+      "Because.",
+      failing,
+      NOW
+    );
+
+    expect(reply).toMatchObject({ parentId: question.id, body: "Because." });
   });
 });
