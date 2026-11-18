@@ -3,6 +3,15 @@ import type { Route } from "./+types/layout.app";
 import { Sidebar } from "~/components/sidebar";
 import { DevUI } from "~/components/dev-ui";
 import { Toaster } from "sonner";
+// PROTOTYPE (wayfinder #18)
+import { getFeed } from "~/lib/knock-prototype.server";
+import {
+  NOTIFICATION_VARIANTS,
+  VariantABell,
+  VariantBNavItem,
+  VariantCDrawer,
+} from "~/components/notification-feed-prototype";
+import { PrototypeSwitcher, VARIANT_COOKIE } from "~/components/prototype-switcher";
 import { getCurrentUserId, getDevCountry } from "~/lib/session";
 import { getCountryTierInfo, COUNTRIES } from "~/lib/ppp";
 import { eq, and, or, sql, desc } from "drizzle-orm";
@@ -198,7 +207,19 @@ export async function loader({ request }: Route.LoaderArgs) {
       })
     : [];
 
+  // PROTOTYPE (wayfinder #18): variant from ?variant=, else cookie, else A.
+  const variantParam = new URL(request.url).searchParams.get("variant");
+  const variantCookie = request.headers
+    .get("Cookie")
+    ?.match(new RegExp(`${VARIANT_COOKIE}=([ABC])`))?.[1];
+  const notificationVariant = variantParam ?? variantCookie ?? "A";
+  const feed = currentUserId
+    ? await getFeed(currentUserId)
+    : { notifications: [], unreadCount: 0, unseenCount: 0, error: null };
+
   return {
+    notificationVariant,
+    feed,
     users: users.map((u) => ({ id: u.id, name: u.name, role: u.role })),
     currentUser: currentUser
       ? {
@@ -225,7 +246,10 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
     countryTierInfo,
     countries,
     isTeamAdmin: userIsTeamAdmin,
+    notificationVariant: variant,
+    feed,
   } = loaderData;
+  const signedIn = !!currentUser;
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -233,10 +257,14 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
         currentUser={currentUser}
         recentCourses={recentCourses}
         isTeamAdmin={userIsTeamAdmin}
+        headerSlot={signedIn && variant === "A" && <VariantABell feed={feed} />}
+        navSlot={signedIn && variant === "B" && <VariantBNavItem feed={feed} />}
       />
       <main className="flex-1 overflow-y-auto">
+        {signedIn && variant === "C" && <VariantCDrawer feed={feed} />}
         <Outlet />
       </main>
+      <PrototypeSwitcher variants={NOTIFICATION_VARIANTS} current={variant} />
       <DevUI
         users={users}
         currentUser={currentUser}

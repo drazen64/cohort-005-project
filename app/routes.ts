@@ -45,6 +45,8 @@ export default [
     route("admin/categories", "routes/admin.categories.tsx"),
     route("admin/refunds", "routes/admin.refunds.tsx"),
     route("settings", "routes/settings.tsx"),
+    // PROTOTYPE (wayfinder #18): Variant B's inbox page.
+    route("notifications", "routes/prototype.notifications.tsx"),
     route("team", "routes/team.tsx"),
     route("redeem/:code", "routes/redeem.$code.tsx"),
   ]),
@@ -54,4 +56,5 @@ export default [
   route("api/logout", "routes/api.logout.ts"),
   route("api/video-tracking", "routes/api.video-tracking.ts"),
   route("api/set-dev-country", "routes/api.set-dev-country.ts"),
+  route("api/prototype-notifications", "routes/api.prototype-notifications.ts"),
 ] satisfies RouteConfig;
