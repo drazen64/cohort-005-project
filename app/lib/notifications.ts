@@ -40,3 +40,48 @@ export const NOTIFICATION_CATEGORIES: Record<
   discussionQuestion: "discussionQuestions",
   discussionReply: "discussionReplies",
 };
+
+export const NOTIFICATION_CATEGORY_NAMES: readonly NotificationCategory[] = [
+  "refundRequestUpdates",
+  "openRefundRequests",
+  "seatClaims",
+  "enrollments",
+  "discussionQuestions",
+  "discussionReplies",
+];
+
+/**
+ * A person's Notification preferences, category × channel. `true` delivers,
+ * `false` mutes. A category or channel left out is unset, which delivers.
+ */
+export type NotificationPreferences = Partial<
+  Record<NotificationCategory, Partial<Record<NotificationChannel, boolean>>>
+>;
+
+/**
+ * Written once for every synced user who has no preference set yet:
+ * Enrollments off, every other category on, Notification Feed only.
+ */
+export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  refundRequestUpdates: { feed: true },
+  openRefundRequests: { feed: true },
+  seatClaims: { feed: true },
+  enrollments: { feed: false },
+  discussionQuestions: { feed: true },
+  discussionReplies: { feed: true },
+};
+
+/**
+ * Flips one category on one channel and leaves the rest of the set as it is.
+ * Starts from the defaults when the person has no preference set yet. Writing
+ * a set replaces it whole, so a change is always read → merge → write.
+ */
+export function mergePreference(
+  preferences: NotificationPreferences | null,
+  category: NotificationCategory,
+  channel: NotificationChannel,
+  enabled: boolean
+): NotificationPreferences {
+  const set = preferences ?? DEFAULT_NOTIFICATION_PREFERENCES;
+  return { ...set, [category]: { ...set[category], [channel]: enabled } };
+}

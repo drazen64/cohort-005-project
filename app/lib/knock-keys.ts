@@ -36,6 +36,9 @@ export const KNOCK_CHANNEL_TYPES: Record<NotificationChannel, string> = {
   feed: "in_app_feed",
 };
 
+/** Cadence keeps each person's preferences in their default Knock set. */
+export const KNOCK_PREFERENCE_SET_ID = "default";
+
 export function notificationForWorkflowKey(
   workflowKey: string
 ): NotificationName | null {

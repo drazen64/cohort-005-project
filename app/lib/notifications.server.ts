@@ -1,5 +1,9 @@
 import type { FeedConnection } from "~/lib/notification-feed";
-import type { NotificationName } from "~/lib/notifications";
+import {
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  type NotificationName,
+  type NotificationPreferences,
+} from "~/lib/notifications";
 import { readServerEnv } from "~/lib/env.server";
 import { knockNotifications } from "~/lib/notifications-knock.server";
 
@@ -17,11 +21,12 @@ import { knockNotifications } from "~/lib/notifications-knock.server";
 //   state.
 //
 // Everything here uses Cadence's names (notifications.ts). Archiving by
-// comment id, user sync (identify) and preferences join the port in later
-// tickets.
+// comment id joins the port in a later ticket.
 //
-// Until user sync lands, the Knock adapter identifies recipients and the actor
-// inline on every trigger, which is why a trigger carries whole users.
+// Users are synced explicitly (`syncNotificationUser`), never inline on a
+// trigger: a user Knock learned about any other way would have no preference
+// set, and Enrollments would default to on. A trigger still carries whole
+// users so services don't care how the adapter addresses them.
 
 /** A Cadence user as a Notification's recipient or sender. */
 export type NotificationUser = {
@@ -54,6 +59,18 @@ export interface Notifications {
    * when there is no feed to connect to (the feed shows its empty state).
    */
   connectFeed(userId: number): Promise<FeedConnection | null>;
+  /** Creates or updates the person's profile (name, email, avatar). */
+  identify(user: NotificationUser): Promise<void>;
+  /** The person's preference set, or `null` if they have none yet. */
+  getPreferences(userId: number): Promise<NotificationPreferences | null>;
+  /**
+   * Replaces the person's whole preference set. To change one category, read
+   * the set, `mergePreference` and write it back.
+   */
+  setPreferences(
+    userId: number,
+    preferences: NotificationPreferences
+  ): Promise<void>;
 }
 
 export function noopNotifications(
@@ -68,11 +85,30 @@ export function noopNotifications(
     async connectFeed() {
       return null;
     },
+    async identify(user) {
+      log(
+        `[notifications] KNOCK_SECRET_API_KEY not set; not syncing user ${user.id}`
+      );
+    },
+    async getPreferences() {
+      return null;
+    },
+    async setPreferences(userId) {
+      log(
+        `[notifications] KNOCK_SECRET_API_KEY not set; not saving preferences for user ${userId}`
+      );
+    },
   };
 }
 
 export type FakeNotifications = Notifications & {
   triggers: NotificationTrigger[];
+  /** Every user synced, in order. */
+  identified: NotificationUser[];
+  /** Every preference set written, in order. */
+  preferenceWrites: { userId: number; preferences: NotificationPreferences }[];
+  /** Current preference sets by user id, as `getPreferences` reads them. */
+  preferences: Map<number, NotificationPreferences>;
 };
 
 /** In-memory adapter for tests. `failWith` makes every call reject. */
@@ -80,8 +116,14 @@ export function fakeNotifications(
   options: { failWith?: Error } = {}
 ): FakeNotifications {
   const triggers: NotificationTrigger[] = [];
+  const identified: NotificationUser[] = [];
+  const preferenceWrites: FakeNotifications["preferenceWrites"] = [];
+  const preferences = new Map<number, NotificationPreferences>();
   return {
     triggers,
+    identified,
+    preferenceWrites,
+    preferences,
     async trigger(trigger) {
       if (options.failWith) throw options.failWith;
       triggers.push(trigger);
@@ -89,6 +131,19 @@ export function fakeNotifications(
     async connectFeed() {
       if (options.failWith) throw options.failWith;
       return null;
+    },
+    async identify(user) {
+      if (options.failWith) throw options.failWith;
+      identified.push(user);
+    },
+    async getPreferences(userId) {
+      if (options.failWith) throw options.failWith;
+      return preferences.get(userId) ?? null;
+    },
+    async setPreferences(userId, set) {
+      if (options.failWith) throw options.failWith;
+      preferenceWrites.push({ userId, preferences: set });
+      preferences.set(userId, set);
     },
   };
 }
@@ -120,5 +175,28 @@ export async function sendNotification(
       `[notifications] Failed to send ${trigger.notification} (${trigger.idempotencyKey})`,
       error
     );
+  }
+}
+
+/**
+ * Syncs a user to the Notifications vendor best-effort: their name, email and
+ * avatar, plus the default preference set if they have none yet (an existing
+ * set is never overwritten). A failure is logged and never fails the action.
+ */
+export async function syncNotificationUser(
+  notifications: Notifications,
+  user: NotificationUser
+): Promise<void> {
+  try {
+    await notifications.identify(user);
+    const preferences = await notifications.getPreferences(user.id);
+    if (preferences === null) {
+      await notifications.setPreferences(
+        user.id,
+        DEFAULT_NOTIFICATION_PREFERENCES
+      );
+    }
+  } catch (error) {
+    console.error(`[notifications] Failed to sync user ${user.id}`, error);
   }
 }

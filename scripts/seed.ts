@@ -14,6 +14,8 @@ import {
   QuestionType,
   TeamMemberRole,
 } from "../app/db/schema";
+import { defaultNotifications } from "../app/lib/notifications.server";
+import { syncAllUsers } from "../app/lib/users.server";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2852,6 +2854,12 @@ This course is still in draft while the cluster examples are rewritten against t
   console.log(
     `  Teams: ${countRows(schema.teams)}, coupons: ${countRows(schema.coupons)} (${countRows(schema.coupons, isNotNull(schema.coupons.redeemedByUserId))} redeemed)`
   );
+
+  // Sync every user to the Notifications vendor (name, email, avatar) and
+  // write default preferences for anyone who has none yet. Without Knock keys
+  // this logs and skips.
+  const synced = await syncAllUsers(db, defaultNotifications());
+  console.log(`  Notifications: synced ${synced} users`);
 }
 
 seed().catch(console.error);
