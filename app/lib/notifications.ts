@@ -16,13 +16,16 @@ export type NotificationName =
   | "refundRequestConfirmation";
 
 /** Preference categories. A person mutes Notifications per category. */
-export type NotificationCategory =
-  | "refundRequestUpdates"
-  | "openRefundRequests"
-  | "seatClaims"
-  | "enrollments"
-  | "discussionQuestions"
-  | "discussionReplies";
+export const NOTIFICATION_CATEGORY_NAMES = [
+  "refundRequestUpdates",
+  "openRefundRequests",
+  "seatClaims",
+  "enrollments",
+  "discussionQuestions",
+  "discussionReplies",
+] as const;
+
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORY_NAMES)[number];
 
 /** Where a Notification is delivered. Only the Notification Feed in v1. */
 export type NotificationChannel = "feed";
@@ -40,15 +43,6 @@ export const NOTIFICATION_CATEGORIES: Record<
   discussionQuestion: "discussionQuestions",
   discussionReply: "discussionReplies",
 };
-
-export const NOTIFICATION_CATEGORY_NAMES: readonly NotificationCategory[] = [
-  "refundRequestUpdates",
-  "openRefundRequests",
-  "seatClaims",
-  "enrollments",
-  "discussionQuestions",
-  "discussionReplies",
-];
 
 /**
  * A person's Notification preferences, category × channel. `true` delivers,

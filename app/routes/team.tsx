@@ -20,10 +20,7 @@ import {
 } from "~/db/schema";
 import { eq, and } from "drizzle-orm";
 import { listTeamLicences } from "~/lib/refunds.server";
-import {
-  getSeatAvailability,
-  type SeatAvailability,
-} from "~/lib/seats.server";
+import { getSeatAvailability, type SeatAvailability } from "~/lib/seats.server";
 import { formatPrice } from "~/lib/utils";
 
 function getTeamForAdmin(userId: number) {

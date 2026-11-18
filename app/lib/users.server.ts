@@ -71,7 +71,9 @@ export async function updateProfile(
     .where(eq(users.id, userId))
     .returning()
     .get();
-  if (user.name !== before.name) await syncNotificationUser(notifications, user);
+  if (user.name !== before.name) {
+    await syncNotificationUser(notifications, user);
+  }
   return user;
 }
 

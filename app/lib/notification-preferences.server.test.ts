@@ -140,7 +140,7 @@ describe("setPreference", () => {
       discussionReplies: { feed: false },
     });
 
-    await setPreference(notifications, base.instructor.id, "enrollments", true);
+    await setPreference(base.instructor.id, "enrollments", true, notifications);
 
     expect(notifications.preferenceWrites).toEqual([
       {
@@ -159,10 +159,10 @@ describe("setPreference", () => {
 
   it("keeps the defaults for every other category when there is no set yet", async () => {
     await setPreference(
-      notifications,
       base.user.id,
       "discussionReplies",
-      false
+      false,
+      notifications
     );
 
     expect(notifications.preferenceWrites).toEqual([
@@ -184,7 +184,7 @@ describe("setPreference", () => {
     const failing = fakeNotifications({ failWith: new Error("Knock is down") });
 
     await expect(
-      setPreference(failing, base.user.id, "discussionReplies", false)
+      setPreference(base.user.id, "discussionReplies", false, failing)
     ).rejects.toThrow("Knock is down");
   });
 });

@@ -73,7 +73,6 @@ describe("buyTeamLicence", () => {
       3 * 4900,
       null,
       3,
-      fakeNotifications(),
       NOW
     );
 
@@ -95,7 +94,6 @@ describe("buyTeamLicence", () => {
       4900,
       null,
       1,
-      fakeNotifications(),
       NOW
     );
     const second = await buyTeamLicence(
@@ -105,27 +103,9 @@ describe("buyTeamLicence", () => {
       4900,
       null,
       1,
-      fakeNotifications(),
       NOW
     );
 
     expect(second.team.id).toBe(first.team.id);
-  });
-
-  it("sends no Notification: buying a Team Licence isn't an Enrollment", async () => {
-    const notifications = fakeNotifications();
-
-    await buyTeamLicence(
-      db,
-      base.user.id,
-      base.course.id,
-      2 * 4900,
-      null,
-      2,
-      notifications,
-      NOW
-    );
-
-    expect(notifications.triggers).toEqual([]);
   });
 });

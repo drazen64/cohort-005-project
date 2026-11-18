@@ -58,7 +58,7 @@ export async function buyCourse(
  * Records a Team Licence and creates its Seats on the buyer's team (made on
  * their first Team Licence, with them as its Team Admin). The buyer isn't
  * enrolled, and a Team Licence isn't an Enrollment, so no Notification is
- * sent: the port is taken only so every purchase is called the same way.
+ * sent.
  */
 export async function buyTeamLicence(
   db: Db,
@@ -67,7 +67,6 @@ export async function buyTeamLicence(
   amountPaid: number,
   country: string | null,
   seatCount: number,
-  _notifications: Notifications,
   now: Date
 ): Promise<{
   purchase: Purchase;

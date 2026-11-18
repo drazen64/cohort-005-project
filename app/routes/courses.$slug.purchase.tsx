@@ -272,7 +272,6 @@ export async function action({ params, request }: Route.ActionArgs) {
     totalPrice,
     country,
     quantity,
-    defaultNotifications(),
     new Date()
   );
   throw redirect(`/team`);

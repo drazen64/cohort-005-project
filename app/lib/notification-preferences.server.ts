@@ -104,10 +104,10 @@ export async function listPreferenceSwitches(
  * back.
  */
 export async function setPreference(
-  notifications: Notifications,
   userId: number,
   category: NotificationCategory,
-  enabled: boolean
+  enabled: boolean,
+  notifications: Notifications
 ): Promise<void> {
   const current = await notifications.getPreferences(userId);
   await notifications.setPreferences(

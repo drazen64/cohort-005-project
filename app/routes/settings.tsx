@@ -38,11 +38,7 @@ const settingsSchema = z.discriminatedUnion("intent", [
   }),
   z.object({
     intent: z.literal("notification-preference"),
-    category: z
-      .string()
-      .refine((value): value is NotificationCategory =>
-        (NOTIFICATION_CATEGORY_NAMES as readonly string[]).includes(value)
-      ),
+    category: z.enum(NOTIFICATION_CATEGORY_NAMES),
     enabled: z.enum(["true", "false"]).transform((value) => value === "true"),
   }),
 ]);
@@ -123,10 +119,10 @@ export async function action({ request }: Route.ActionArgs) {
   if (parsed.data.intent === "notification-preference") {
     try {
       await setPreference(
-        defaultNotifications(),
         currentUserId,
         parsed.data.category,
-        parsed.data.enabled
+        parsed.data.enabled,
+        defaultNotifications()
       );
     } catch (error) {
       console.error(
