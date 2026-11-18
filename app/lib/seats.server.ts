@@ -8,11 +8,8 @@ import {
   refunds,
   RefundStatus,
 } from "~/db/schema";
-import { enrollUser, getNotificationUser } from "~/lib/enrollments.server";
-import {
-  sendNotification,
-  type Notifications,
-} from "~/lib/notifications.server";
+import { enrollUser } from "~/lib/enrollments.server";
+import { notifyUser, type Notifications } from "~/lib/notifications.server";
 
 // ─── Seats ───
 // A Student claiming a Seat on a Team Licence, which gives them an Enrollment.
@@ -132,7 +129,7 @@ export async function claimSeat(
     now
   );
 
-  if (purchase && purchase.userId !== userId) {
+  if (purchase) {
     await notifySeatClaimed(db, seat, purchase.userId, userId, notifications);
   }
 
@@ -151,19 +148,15 @@ async function notifySeatClaimed(
   claimedById: number,
   notifications: Notifications
 ) {
-  const recipient = getNotificationUser(db, teamAdminId);
-  const actor = getNotificationUser(db, claimedById);
   const course = db
     .select({ title: courses.title })
     .from(courses)
     .where(eq(courses.id, seat.courseId))
     .get();
-  if (!recipient || !actor || !course) return;
+  if (!course) return;
 
-  await sendNotification(notifications, {
+  await notifyUser(db, notifications, teamAdminId, claimedById, {
     notification: "seatClaimed",
-    recipients: [recipient],
-    actor,
     idempotencyKey: `seat-claimed:${seat.id}`,
     data: {
       seatId: seat.id,

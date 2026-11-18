@@ -1,10 +1,6 @@
 import { and, eq } from "drizzle-orm";
-import { courses, enrollments, users } from "~/db/schema";
-import {
-  sendNotification,
-  type NotificationUser,
-  type Notifications,
-} from "~/lib/notifications.server";
+import { courses, enrollments } from "~/db/schema";
+import { notifyUser, type Notifications } from "~/lib/notifications.server";
 import type { Db } from "~/db";
 
 // ─── Enrollments ───
@@ -59,41 +55,16 @@ export async function enrollUser(
     .returning()
     .get();
 
-  if (course.instructorId !== userId) {
-    const recipient = getNotificationUser(db, course.instructorId);
-    const actor = getNotificationUser(db, userId);
-    if (recipient && actor) {
-      await sendNotification(notifications, {
-        notification: "enrollment",
-        recipients: [recipient],
-        actor,
-        idempotencyKey: `enrollment:${enrollment.id}`,
-        data: {
-          enrollmentId: enrollment.id,
-          courseId: course.id,
-          courseTitle: course.title,
-          url: `/instructor/${course.id}/students`,
-        },
-      });
-    }
-  }
+  await notifyUser(db, notifications, course.instructorId, userId, {
+    notification: "enrollment",
+    idempotencyKey: `enrollment:${enrollment.id}`,
+    data: {
+      enrollmentId: enrollment.id,
+      courseId: course.id,
+      courseTitle: course.title,
+      url: `/instructor/${course.id}/students`,
+    },
+  });
 
   return enrollment;
-}
-
-/** A Cadence user as a Notification's recipient or sender. */
-export function getNotificationUser(
-  db: Db,
-  userId: number
-): NotificationUser | undefined {
-  return db
-    .select({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      avatarUrl: users.avatarUrl,
-    })
-    .from(users)
-    .where(eq(users.id, userId))
-    .get();
 }

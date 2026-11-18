@@ -1,3 +1,6 @@
+import { eq } from "drizzle-orm";
+import type { Db } from "~/db";
+import { users } from "~/db/schema";
 import type { FeedConnection } from "~/lib/notification-feed";
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
@@ -39,6 +42,33 @@ export type NotificationUser = {
  * What a Notification row needs to render, captured when it is sent. Values
  * stay flat scalars so they can be filtered on later (e.g. by `commentId`).
  */
+/** The fields of a user row a Notification shows. */
+export function toNotificationUser(user: NotificationUser): NotificationUser {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    avatarUrl: user.avatarUrl,
+  };
+}
+
+/** A Cadence user as a Notification's recipient or sender. */
+export function getNotificationUser(
+  db: Db,
+  userId: number
+): NotificationUser | undefined {
+  return db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      avatarUrl: users.avatarUrl,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .get();
+}
+
 export type NotificationData = Record<string, string | number | boolean | null>;
 
 export type NotificationTrigger = {
@@ -177,34 +207,65 @@ export function defaultNotifications(): Notifications {
 }
 
 /**
- * Sends a Notification best-effort: it runs after the domain write has
- * committed, and a failure is logged and never fails the action.
+ * Runs a call to the Notifications vendor best-effort: it runs after the domain
+ * write has committed, and a failure is logged and never fails the action.
  */
-export async function sendNotification(
+async function bestEffort(
+  failure: string,
+  work: () => Promise<void>
+): Promise<void> {
+  try {
+    await work();
+  } catch (error) {
+    console.error(`[notifications] ${failure}`, error);
+  }
+}
+
+/** Sends a Notification best-effort. */
+export function sendNotification(
   notifications: Notifications,
   trigger: NotificationTrigger
 ): Promise<void> {
-  try {
-    await notifications.trigger(trigger);
-  } catch (error) {
-    console.error(
-      `[notifications] Failed to send ${trigger.notification} (${trigger.idempotencyKey})`,
-      error
-    );
-  }
+  return bestEffort(
+    `Failed to send ${trigger.notification} (${trigger.idempotencyKey})`,
+    () => notifications.trigger(trigger)
+  );
+}
+
+/**
+ * Sends a Notification from one user to another, best-effort. Nobody is told
+ * about their own action, so nothing is sent when they are the same person,
+ * or when either of them no longer exists.
+ */
+export async function notifyUser(
+  db: Db,
+  notifications: Notifications,
+  recipientId: number,
+  actorId: number,
+  trigger: Omit<NotificationTrigger, "recipients" | "actor">
+): Promise<void> {
+  if (recipientId === actorId) return;
+  const recipient = getNotificationUser(db, recipientId);
+  const actor = getNotificationUser(db, actorId);
+  if (!recipient || !actor) return;
+  await sendNotification(notifications, {
+    ...trigger,
+    recipients: [recipient],
+    actor,
+  });
 }
 
 /**
  * Syncs a user to the Notifications vendor best-effort: their name, email and
  * avatar, plus the default preference set if they have none yet (an existing
- * set is never overwritten). A failure is logged and never fails the action.
+ * set is never overwritten).
  */
-export async function syncNotificationUser(
+export function syncNotificationUser(
   notifications: Notifications,
   user: NotificationUser
 ): Promise<void> {
-  try {
-    await notifications.identify(user);
+  return bestEffort(`Failed to sync user ${user.id}`, async () => {
+    await notifications.identify(toNotificationUser(user));
     const preferences = await notifications.getPreferences(user.id);
     if (preferences === null) {
       await notifications.setPreferences(
@@ -212,25 +273,16 @@ export async function syncNotificationUser(
         DEFAULT_NOTIFICATION_PREFERENCES
       );
     }
-  } catch (error) {
-    console.error(`[notifications] Failed to sync user ${user.id}`, error);
-  }
+  });
 }
 
-/**
- * Archives a deleted comment's Notifications best-effort: a failure is logged
- * and never fails the delete.
- */
-export async function archiveNotificationsForComment(
+/** Archives a deleted comment's Notifications best-effort. */
+export function archiveNotificationsForComment(
   notifications: Notifications,
   commentId: number
 ): Promise<void> {
-  try {
-    await notifications.archiveForComment(commentId);
-  } catch (error) {
-    console.error(
-      `[notifications] Failed to archive Notifications for comment ${commentId}`,
-      error
-    );
-  }
+  return bestEffort(
+    `Failed to archive Notifications for comment ${commentId}`,
+    () => notifications.archiveForComment(commentId)
+  );
 }

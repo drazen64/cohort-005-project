@@ -21,15 +21,6 @@ function getUser(db: Db, userId: number) {
   return db.select().from(users).where(eq(users.id, userId)).get();
 }
 
-function syncUser(notifications: Notifications, user: User) {
-  return syncNotificationUser(notifications, {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    avatarUrl: user.avatarUrl,
-  });
-}
-
 /**
  * Creates a Student and syncs them (with their default Notification
  * preferences). An email that already has an account just returns that user,
@@ -57,7 +48,7 @@ export async function signUp(
     })
     .returning()
     .get();
-  await syncUser(notifications, user);
+  await syncNotificationUser(notifications, user);
   return user;
 }
 
@@ -80,7 +71,7 @@ export async function updateProfile(
     .where(eq(users.id, userId))
     .returning()
     .get();
-  if (user.name !== before.name) await syncUser(notifications, user);
+  if (user.name !== before.name) await syncNotificationUser(notifications, user);
   return user;
 }
 
@@ -99,7 +90,7 @@ export async function updateUserByAdmin(
     .where(eq(users.id, userId))
     .returning()
     .get();
-  await syncUser(notifications, user);
+  await syncNotificationUser(notifications, user);
   return user;
 }
 
@@ -114,7 +105,7 @@ export async function syncAllUsers(
 ): Promise<number> {
   const all = db.select().from(users).all();
   for (const user of all) {
-    await syncUser(notifications, user);
+    await syncNotificationUser(notifications, user);
   }
   return all.length;
 }

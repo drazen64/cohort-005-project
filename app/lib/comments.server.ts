@@ -1,10 +1,9 @@
 import { eq } from "drizzle-orm";
-import { comments, courses, lessons, modules, users } from "~/db/schema";
+import { comments, courses, lessons, modules } from "~/db/schema";
 import { MAX_COMMENT_LENGTH, MIN_COMMENT_LENGTH } from "~/lib/comments";
 import {
   archiveNotificationsForComment,
-  sendNotification,
-  type NotificationUser,
+  notifyUser,
   type Notifications,
 } from "~/lib/notifications.server";
 import type { Db } from "~/db";
@@ -50,22 +49,6 @@ function assertValidBody(body: string) {
     );
   }
   return trimmed;
-}
-
-function getNotificationUser(
-  db: Db,
-  userId: number
-): NotificationUser | undefined {
-  return db
-    .select({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      avatarUrl: users.avatarUrl,
-    })
-    .from(users)
-    .where(eq(users.id, userId))
-    .get();
 }
 
 const SNIPPET_LENGTH = 120;
@@ -127,47 +110,33 @@ export async function createComment(
 
   const url = `/courses/${course.courseSlug}/lessons/${lessonId}#comment-${comment.id}`;
 
-  if (!parent && course.instructorId !== userId) {
-    const recipient = getNotificationUser(db, course.instructorId);
-    const actor = getNotificationUser(db, userId);
-    if (recipient && actor) {
-      await sendNotification(notifications, {
-        notification: "discussionQuestion",
-        recipients: [recipient],
-        actor,
-        idempotencyKey: `discussion-question:${comment.id}`,
-        // `commentId` stays a top-level scalar: deleting the comment finds
-        // these Notifications by it (archiveForComment).
-        data: {
-          commentId: comment.id,
-          courseTitle: course.courseTitle,
-          lessonTitle: course.lessonTitle,
-          snippet: snippetOf(comment.body),
-          url,
-        },
-      });
-    }
-  }
-
-  if (parent && parent.userId !== userId) {
-    const recipient = getNotificationUser(db, parent.userId);
-    const actor = getNotificationUser(db, userId);
-    if (recipient && actor) {
-      await sendNotification(notifications, {
-        notification: "discussionReply",
-        recipients: [recipient],
-        actor,
-        idempotencyKey: `discussion-reply:${comment.id}`,
-        data: {
-          commentId: comment.id,
-          questionId: parent.id,
-          courseTitle: course.courseTitle,
-          lessonTitle: course.lessonTitle,
-          snippet: snippetOf(comment.body),
-          url,
-        },
-      });
-    }
+  if (!parent) {
+    await notifyUser(db, notifications, course.instructorId, userId, {
+      notification: "discussionQuestion",
+      idempotencyKey: `discussion-question:${comment.id}`,
+      // `commentId` stays a top-level scalar: deleting the comment finds
+      // these Notifications by it (archiveForComment).
+      data: {
+        commentId: comment.id,
+        courseTitle: course.courseTitle,
+        lessonTitle: course.lessonTitle,
+        snippet: snippetOf(comment.body),
+        url,
+      },
+    });
+  } else {
+    await notifyUser(db, notifications, parent.userId, userId, {
+      notification: "discussionReply",
+      idempotencyKey: `discussion-reply:${comment.id}`,
+      data: {
+        commentId: comment.id,
+        questionId: parent.id,
+        courseTitle: course.courseTitle,
+        lessonTitle: course.lessonTitle,
+        snippet: snippetOf(comment.body),
+        url,
+      },
+    });
   }
 
   return comment;

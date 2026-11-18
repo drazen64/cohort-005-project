@@ -29,7 +29,7 @@ import {
 import { formatPrice } from "~/lib/utils";
 import {
   sendNotification,
-  type NotificationUser,
+  toNotificationUser,
   type Notifications,
 } from "~/lib/notifications.server";
 import {
@@ -347,15 +347,6 @@ export type Email = { to: string; subject: string; body: string };
 
 function getUser(db: Queryable, userId: number) {
   return db.select().from(users).where(eq(users.id, userId)).get();
-}
-
-function toNotificationUser(user: typeof users.$inferSelect): NotificationUser {
-  return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    avatarUrl: user.avatarUrl,
-  };
 }
 
 export type RaiseResult =
