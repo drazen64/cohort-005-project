@@ -1,7 +1,6 @@
 import { eq } from "drizzle-orm";
 import { coupons, courses, purchases, UserRole, users } from "~/db/schema";
 import {
-  DEFAULT_NOTIFICATION_PREFERENCES,
   NOTIFICATION_CATEGORY_NAMES,
   mergePreference,
   type NotificationCategory,
@@ -87,9 +86,10 @@ export async function listPreferenceSwitches(
   userId: number,
   notifications: Notifications
 ): Promise<PreferenceSwitch[]> {
-  const preferences =
-    (await notifications.getPreferences(userId)) ??
-    DEFAULT_NOTIFICATION_PREFERENCES;
+  // No set yet means every category delivers: the defaults are only written
+  // when a user is synced, so showing them here would show a setting that
+  // isn't in force.
+  const preferences = (await notifications.getPreferences(userId)) ?? {};
   return visibleCategories(db, userId).map((category) => ({
     category,
     // Unset delivers (notifications.ts).

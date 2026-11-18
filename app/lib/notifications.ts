@@ -67,8 +67,10 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
 
 /**
  * Flips one category on one channel and leaves the rest of the set as it is.
- * Starts from the defaults when the person has no preference set yet. Writing
- * a set replaces it whole, so a change is always read → merge → write.
+ * A person with no preference set yet (`null`) has every category delivering,
+ * which is how the vendor treats them, so the rest stays unset rather than
+ * picking up the defaults. Writing a set replaces it whole, so a change is
+ * always read → merge → write.
  */
 export function mergePreference(
   preferences: NotificationPreferences | null,
@@ -76,6 +78,6 @@ export function mergePreference(
   channel: NotificationChannel,
   enabled: boolean
 ): NotificationPreferences {
-  const set = preferences ?? DEFAULT_NOTIFICATION_PREFERENCES;
+  const set = preferences ?? {};
   return { ...set, [category]: { ...set[category], [channel]: enabled } };
 }

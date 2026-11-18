@@ -43,7 +43,10 @@ describe("syncNotificationUser", () => {
 
   it("leaves an existing preference set alone on a later sync", async () => {
     const notifications = fakeNotifications();
-    const mine = { enrollments: { feed: true }, discussionReplies: { feed: false } };
+    const mine = {
+      enrollments: { feed: true },
+      discussionReplies: { feed: false },
+    };
     notifications.preferences.set(7, mine);
 
     await syncNotificationUser(notifications, { ...ADA, name: "Ada King" });
@@ -54,10 +57,16 @@ describe("syncNotificationUser", () => {
   });
 
   it("logs a failed sync instead of throwing", async () => {
-    const notifications = fakeNotifications({ failWith: new Error("Knock is down") });
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const notifications = fakeNotifications({
+      failWith: new Error("Knock is down"),
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
 
-    await expect(syncNotificationUser(notifications, ADA)).resolves.toBeUndefined();
+    await expect(
+      syncNotificationUser(notifications, ADA)
+    ).resolves.toBeUndefined();
     expect(consoleError).toHaveBeenCalled();
 
     consoleError.mockRestore();
@@ -72,21 +81,18 @@ describe("mergePreference", () => {
       seatClaims: { feed: true },
     };
 
-    expect(mergePreference(current, "discussionReplies", "feed", true)).toEqual({
-      enrollments: { feed: true },
-      discussionReplies: { feed: true },
-      seatClaims: { feed: true },
-    });
+    expect(mergePreference(current, "discussionReplies", "feed", true)).toEqual(
+      {
+        enrollments: { feed: true },
+        discussionReplies: { feed: true },
+        seatClaims: { feed: true },
+      }
+    );
   });
 
-  it("starts from the defaults when the person has no preference set yet", () => {
-    expect(mergePreference(null, "enrollments", "feed", true)).toEqual({
-      refundRequestUpdates: { feed: true },
-      openRefundRequests: { feed: true },
-      seatClaims: { feed: true },
-      enrollments: { feed: true },
-      discussionQuestions: { feed: true },
-      discussionReplies: { feed: true },
+  it("leaves the rest unset, so delivering, when the person has no preference set yet", () => {
+    expect(mergePreference(null, "enrollments", "feed", false)).toEqual({
+      enrollments: { feed: false },
     });
   });
 });

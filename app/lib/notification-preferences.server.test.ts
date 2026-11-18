@@ -102,11 +102,14 @@ describe("listPreferenceSwitches", () => {
     ]);
   });
 
-  it("shows the defaults to someone with no preference set yet", async () => {
+  // Knock delivers every category to someone with no preference set (a user
+  // Cadence never synced), so the card must not show the defaults' Enrollments
+  // off: that isn't in force.
+  it("shows every switch on to someone with no preference set yet, as Knock delivers", async () => {
     expect(
       await listPreferenceSwitches(db, base.instructor.id, notifications)
     ).toEqual([
-      { category: "enrollments", enabled: false },
+      { category: "enrollments", enabled: true },
       { category: "discussionQuestions", enabled: true },
       { category: "discussionReplies", enabled: true },
     ]);
@@ -157,26 +160,20 @@ describe("setPreference", () => {
     ]);
   });
 
-  it("keeps the defaults for every other category when there is no set yet", async () => {
+  it("leaves every other category delivering when there is no set yet", async () => {
     await setPreference(
-      base.user.id,
+      base.instructor.id,
       "discussionReplies",
       false,
       notifications
     );
 
-    expect(notifications.preferenceWrites).toEqual([
-      {
-        userId: base.user.id,
-        preferences: {
-          refundRequestUpdates: { feed: true },
-          openRefundRequests: { feed: true },
-          seatClaims: { feed: true },
-          enrollments: { feed: false },
-          discussionQuestions: { feed: true },
-          discussionReplies: { feed: false },
-        },
-      },
+    expect(
+      await listPreferenceSwitches(db, base.instructor.id, notifications)
+    ).toEqual([
+      { category: "enrollments", enabled: true },
+      { category: "discussionQuestions", enabled: true },
+      { category: "discussionReplies", enabled: false },
     ]);
   });
 
