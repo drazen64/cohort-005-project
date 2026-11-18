@@ -848,6 +848,7 @@ async function notifyDecision(
       purchaseId: purchase.id,
       courseTitle: refundRequest.courseTitle,
       amount: formatPrice(purchase.amountPaid),
+      purchasedAt: purchase.createdAt,
       decisionNote: refundRequest.decisionNote,
       url: refundsPageFor(db, purchase),
     },

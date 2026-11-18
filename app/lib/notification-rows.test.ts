@@ -81,16 +81,34 @@ describe("describeNotification", () => {
     },
     {
       notification: "refundRequestApproved",
-      data: { courseTitle: "JavaScript Basics", decisionNote: "Sorry!" },
+      data: {
+        courseTitle: "JavaScript Basics",
+        amount: "$49.00",
+        purchasedAt: "2026-11-03T12:00:00.000Z",
+        decisionNote: "Sorry!",
+      },
       title: "Your Refund Request was approved",
-      snippet: "JavaScript Basics · “Sorry!”",
+      snippet: "JavaScript Basics · $49.00 Purchase on Nov 3, 2026 · “Sorry!”",
+      category: "refundRequestUpdates",
+    },
+    {
+      notification: "refundRequestApproved",
+      data: { courseTitle: "JavaScript Basics", amount: "$49.00" },
+      title: "Your Refund Request was approved",
+      snippet: "JavaScript Basics · $49.00 Purchase",
       category: "refundRequestUpdates",
     },
     {
       notification: "refundRequestDeclined",
-      data: { courseTitle: "JavaScript Basics", decisionNote: "Too late" },
+      data: {
+        courseTitle: "JavaScript Basics",
+        amount: "$49.00",
+        purchasedAt: "2026-11-03T12:00:00.000Z",
+        decisionNote: "Too late",
+      },
       title: "Your Refund Request was declined",
-      snippet: "“Too late” You can ask again.",
+      snippet:
+        "JavaScript Basics · $49.00 Purchase on Nov 3, 2026 · “Too late” · You can ask again.",
       category: "refundRequestUpdates",
     },
     {

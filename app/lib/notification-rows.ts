@@ -34,8 +34,8 @@ type RowText = { title: string; snippet: string | null };
 type Describe = (data: Data, actor: string) => RowText;
 
 // Trigger data fields read here: actor (from the feed), courseTitle,
-// lessonTitle, snippet, amount (cents, or a ready-made string), reason,
-// decisionNote, seatsLeft. `url` is read for every Notification.
+// lessonTitle, snippet, amount (cents, or a ready-made string), purchasedAt
+// (ISO), reason, decisionNote, seatsLeft. `url` is read for every Notification.
 const ROWS: Record<NotificationName, Describe> = {
   discussionQuestion: (data, actor) => ({
     title: joinWords(`${actor} asked a question`, on(text(data.lessonTitle))),
@@ -59,11 +59,20 @@ const ROWS: Record<NotificationName, Describe> = {
   }),
   refundRequestApproved: (data) => ({
     title: "Your Refund Request was approved",
-    snippet: joinParts(text(data.courseTitle), quote(text(data.decisionNote))),
+    snippet: joinParts(
+      text(data.courseTitle),
+      purchase(data.amount, data.purchasedAt),
+      quote(text(data.decisionNote))
+    ),
   }),
   refundRequestDeclined: (data) => ({
     title: "Your Refund Request was declined",
-    snippet: joinWords(quote(text(data.decisionNote)), "You can ask again."),
+    snippet: joinParts(
+      text(data.courseTitle),
+      purchase(data.amount, data.purchasedAt),
+      quote(text(data.decisionNote)),
+      "You can ask again."
+    ),
   }),
   refundRequestConfirmation: (data) => ({
     title: joinWords(
@@ -120,6 +129,27 @@ function money(value: unknown): string | null {
     return formatMoney(value);
   }
   return text(value);
+}
+
+/** Which Purchase, e.g. "$49.00 Purchase on Nov 3, 2026". */
+function purchase(amount: unknown, purchasedAt: unknown): string | null {
+  const price = money(amount);
+  const day = date(purchasedAt);
+  if (price === null && day === null) return null;
+  return joinWords(price, "Purchase", day === null ? null : `on ${day}`);
+}
+
+/** An ISO timestamp as "Nov 3, 2026", in the reader's time zone. */
+function date(value: unknown): string | null {
+  const iso = text(value);
+  if (iso === null) return null;
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return null;
+  return when.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 function seatsLeft(value: unknown): string | null {
