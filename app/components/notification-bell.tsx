@@ -9,6 +9,7 @@ import {
   Settings,
   UsersRound,
 } from "lucide-react";
+import { z } from "zod";
 import { cn } from "~/lib/utils";
 import { UserAvatar } from "~/components/user-avatar";
 import {
@@ -73,11 +74,13 @@ function useNotificationFeed(connection: FeedConnection | null) {
   return { feed, state };
 }
 
+const notificationTokenSchema = z.object({ userToken: z.string() });
+
 async function refreshUserToken(): Promise<string | undefined> {
   const response = await fetch("/api/notification-token");
   if (!response.ok) return undefined;
-  const body: { userToken?: string } = await response.json();
-  return body.userToken;
+  const body = notificationTokenSchema.safeParse(await response.json());
+  return body.success ? body.data.userToken : undefined;
 }
 
 export function NotificationBell({
