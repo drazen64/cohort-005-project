@@ -129,10 +129,7 @@ export async function action({ request }: Route.ActionArgs) {
         `[notifications] Failed to save preference ${parsed.data.category} for user ${currentUserId}`,
         error
       );
-      return data(
-        { error: NOTIFICATION_PREFERENCE_SAVE_FAILED },
-        { status: 502 }
-      );
+      throw data(NOTIFICATION_PREFERENCE_SAVE_FAILED, { status: 502 });
     }
     return { saved: true };
   }
@@ -147,6 +144,28 @@ export async function action({ request }: Route.ActionArgs) {
     throw data("User not found.", { status: 404 });
   }
   return { success: true };
+}
+
+/**
+ * A preference switch saves through its own fetcher, and a fetcher's thrown
+ * response would replace the whole page with the ErrorBoundary. The failed
+ * save is caught here instead and handed to that switch, which puts itself
+ * back and shows a toast. Every other failure still reaches the
+ * ErrorBoundary.
+ */
+export async function clientAction({ serverAction }: Route.ClientActionArgs) {
+  try {
+    return await serverAction();
+  } catch (error) {
+    if (
+      isRouteErrorResponse(error) &&
+      error.status === 502 &&
+      error.data === NOTIFICATION_PREFERENCE_SAVE_FAILED
+    ) {
+      return { error: NOTIFICATION_PREFERENCE_SAVE_FAILED };
+    }
+    throw error;
+  }
 }
 
 export default function Settings({ loaderData }: Route.ComponentProps) {
@@ -359,8 +378,9 @@ function NotificationsCard({
 
 /**
  * Saves as soon as it's flipped. While the save is in flight the switch shows
- * the new value; if it fails, the action leaves the preference as it was, so
- * the switch falls back to the loader's value and a toast explains.
+ * the new value; if it fails, the action leaves the preference as it was and
+ * throws, `clientAction` hands the failure back here, and the switch falls
+ * back to the loader's value while a toast explains.
  */
 function NotificationPreferenceSwitch({
   preference,
