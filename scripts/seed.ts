@@ -2070,6 +2070,47 @@ This course is still in draft while the cluster examples are rewritten against t
 
   console.log(`Created ${countRows(schema.lessonProgress)} lesson progress records.`);
 
+  // ─── Bookmarks and Notes ───
+  // Private to each Student. Emma has a few of each across both courses.
+
+  db.insert(schema.bookmarks)
+    .values([
+      { userId: students[0].id, lessonId: course1LessonIds[4], createdAt: daysAgo(30) },
+      { userId: students[0].id, lessonId: course2LessonIds[6], createdAt: daysAgo(9) },
+      { userId: students[2].id, lessonId: course1LessonIds[1], createdAt: daysAgo(20) },
+    ])
+    .run();
+
+  db.insert(schema.notes)
+    .values([
+      {
+        userId: students[0].id,
+        lessonId: course1LessonIds[4],
+        body: "Generics: think of <T> as a parameter for types.\nRewatch the constraint part.",
+        createdAt: daysAgo(30),
+        updatedAt: daysAgo(28),
+      },
+      {
+        userId: students[0].id,
+        lessonId: course2LessonIds[3],
+        body: "201 for create, 204 for delete with no body.",
+        createdAt: daysAgo(12),
+        updatedAt: daysAgo(12),
+      },
+      {
+        userId: students[2].id,
+        lessonId: course1LessonIds[2],
+        body: "Ask about strict mode in the discussion.",
+        createdAt: daysAgo(19),
+        updatedAt: daysAgo(19),
+      },
+    ])
+    .run();
+
+  console.log(
+    `Created ${countRows(schema.bookmarks)} bookmarks and ${countRows(schema.notes)} notes.`
+  );
+
   // ─── Quiz Attempts ───
 
   // Helper to record a quiz attempt with answers
@@ -2849,6 +2890,9 @@ This course is still in draft while the cluster examples are rewritten against t
   console.log(`  Enrollments: ${countRows(schema.enrollments)}`);
   console.log(`  Course ratings: ${countRows(schema.courseRatings)}`);
   console.log(`  Lesson comments: ${countRows(schema.comments)}`);
+  console.log(
+    `  Bookmarks: ${countRows(schema.bookmarks)}, notes: ${countRows(schema.notes)}`
+  );
   console.log(
     `  Lesson progress: ${countRows(schema.lessonProgress)} (${countRows(schema.lessonProgress, eq(schema.lessonProgress.status, LessonProgressStatus.Completed))} completed)`
   );
